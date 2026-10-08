@@ -102,10 +102,10 @@ To allow the 3 teammates to work in parallel without merge conflicts, tasks are 
 
 ### Teammate 2: Course Catalog, Prerequisite DAG & Notification Service
 *Components: `catalog_service/` & `notification_service/`*
-- [ ] Implement `catalog_service/database.py` (async SQLite connection for `catalog.db`).
-- [ ] Implement `catalog_service/models.py` (SQLAlchemy `Course` and `Section` models).
-- [ ] Implement `catalog_service/prereq_dag.py` (Prerequisite Directed Acyclic Graph traversal & cycle detection).
-- [ ] Implement endpoints in `catalog_service/main.py`:
+- [x] Implement `catalog_service/database.py` (async SQLite connection for `catalog.db`).
+- [x] Implement `catalog_service/models.py` (SQLAlchemy `Course` and `Section` models).
+- [x] Implement `catalog_service/prereq_dag.py` (Prerequisite Directed Acyclic Graph traversal & cycle detection).
+- [x] Implement endpoints in `catalog_service/main.py`:
   - `GET /courses` & `GET /sections`
   - `POST /validate-prereqs`
 - [ ] Implement `notification_service/database.py` & `models.py` (notification/alert log store).
