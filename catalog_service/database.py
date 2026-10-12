@@ -26,7 +26,7 @@ SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000"))
 
 
 def make_engine(url: str) -> AsyncEngine:
-    """Create an async SQLite engine configured with WAL, busy timeout and BEGIN IMMEDIATE (ADR-001)."""
+    """Create an async SQLite engine configured with WAL and busy timeout (ADR-001)."""
     eng = create_async_engine(
         url,
         echo=False,
@@ -41,10 +41,6 @@ def make_engine(url: str) -> AsyncEngine:
             cursor.execute("PRAGMA journal_mode=WAL")
             cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
             cursor.close()
-
-        @event.listens_for(eng.sync_engine, "begin")
-        def _on_begin(conn) -> None:
-            conn.exec_driver_sql("BEGIN IMMEDIATE")
 
     return eng
 

@@ -118,7 +118,6 @@ class Section(Base):
         "SeatReservation",
         back_populates="section",
         cascade="all, delete-orphan",
-        lazy="selectin",
     )
 
     @property
