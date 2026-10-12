@@ -93,9 +93,9 @@ To allow the 3 teammates to work in parallel without merge conflicts, tasks are 
 - [ ] Implement `api_gateway/auth.py` (`POST /api/v1/auth/login` issuing JWTs via `common.auth`).
 - [ ] Implement `api_gateway/rate_limiter.py` (**Protection Proxy** token bucket rate limiter).
 - [ ] Implement reverse proxy routing in `api_gateway/main.py` (injecting verified `X-Student-Id` header downstream).
-- [ ] Implement `student_service/database.py` (async SQLite connection for `student.db`).
-- [ ] Implement `student_service/models.py` (SQLAlchemy `Student` model: GPA, standing, hold, completed courses, password hash).
-- [ ] Implement endpoints in `student_service/main.py`:
+- [x] Implement `student_service/database.py` (async SQLite connection for `student.db`).
+- [x] Implement `student_service/models.py` (SQLAlchemy `Student` model: GPA, standing, hold, completed courses, password hash).
+- [x] Implement endpoints in `student_service/main.py`:
   - `GET /students/{id}`
   - `GET /students/{id}/eligibility`
   - `POST /students/verify-credentials`
