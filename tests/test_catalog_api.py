@@ -3,6 +3,8 @@ tests/test_catalog_api.py
 Integration tests verifying Course Catalog Service REST API endpoints,
 search filters, capacity telemetry, and prerequisite validation.
 """
+from unittest.mock import AsyncMock, MagicMock, patch
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -262,3 +264,25 @@ async def test_prerequisite_validation_endpoint(api_client: AsyncClient):
     assert unknown_res.status_code == 200
     assert unknown_res.json()["is_valid"] is False
     assert "does not exist" in unknown_res.json()["message"]
+
+    # 5. Fallback transcript lookup when completed_courses is empty
+    mock_response = MagicMock()
+    mock_response.status_code = 200
+    mock_response.json.return_value = {
+        "id": "STU_001",
+        "completed_courses": ["CS101"],
+    }
+    with patch("httpx.AsyncClient.get", new_callable=AsyncMock) as mock_get:
+        mock_get.return_value = mock_response
+        fallback_res = await client.post(
+            "/validate-prereqs",
+            json={
+                "student_id": "STU_001",
+                "course_code": "CS102",
+                "completed_courses": [],
+            },
+        )
+        assert fallback_res.status_code == 200
+        assert fallback_res.json()["is_valid"] is True
+        assert fallback_res.json()["missing_prereqs"] == []
+
