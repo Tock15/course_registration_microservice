@@ -3,10 +3,16 @@ catalog_service/models.py
 SQLAlchemy 2.0 ORM models for Course, Prerequisite, and Section entities.
 """
 import json
+from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import Boolean, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+def utcnow() -> datetime:
+    """Return timezone-aware current UTC time."""
+    return datetime.now(UTC)
 
 
 class Base(DeclarativeBase):
@@ -106,8 +112,14 @@ class Section(Base):
     end_time: Mapped[str] = mapped_column(String(10), default="10:30")
     instructor: Mapped[str] = mapped_column(String(100), default="TBA")
 
-    # Relationship
+    # Relationships
     course: Mapped["Course"] = relationship("Course", back_populates="sections")
+    seat_reservations: Mapped[list["SeatReservation"]] = relationship(
+        "SeatReservation",
+        back_populates="section",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
     @property
     def schedule_days(self) -> list[str]:
@@ -141,4 +153,60 @@ class Section(Base):
             "end_time": self.end_time,
             "room": self.room,
             "instructor": self.instructor,
+        }
+
+
+class SeatReservation(Base):
+    """Encapsulates idempotent seat reservations for sections (ADR-001).
+
+    Statuses:
+      - ACTIVE: Seat allocated and held for student/enrollment.
+      - RELEASED: Seat returned back to section quota.
+      - CANCELLED: Reservation abandoned or preemptively cancelled.
+    """
+
+    __tablename__ = "seat_reservations"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    section_id: Mapped[int] = mapped_column(
+        Integer,
+        ForeignKey("sections.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    seat_key: Mapped[str] = mapped_column(
+        String(64),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="ACTIVE",
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    # Relationships
+    section: Mapped["Section"] = relationship(
+        "Section",
+        back_populates="seat_reservations",
+    )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "section_id": self.section_id,
+            "seat_key": self.seat_key,
+            "status": self.status,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }

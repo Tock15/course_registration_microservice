@@ -7,22 +7,29 @@ Responsibilities:
   - Prerequisite Directed Acyclic Graph (DAG) validation (FR-03)
   - Dynamic quota expansion telemetry (FR-14)
   - Curriculum and Section administration (FR-13)
+  - Idempotent seat reservation & release protocol (ADR-001)
 """
 import os
 from contextlib import asynccontextmanager
 
 import httpx
 from fastapi import Depends, FastAPI, HTTPException, Query, status
-from sqlalchemy import or_, select
+from fastapi.responses import JSONResponse
+from sqlalchemy import or_, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from catalog_service.database import get_db, init_db
-from catalog_service.models import Course, Prerequisite, Section
+from catalog_service.models import Course, Prerequisite, SeatReservation, Section
 from catalog_service.prereq_dag import build_dag_from_db
 from catalog_service.schemas import (
     CapacityUpdateRequest,
     CourseCreateRequest,
+    SeatReleaseRequest,
+    SeatReleaseResponse,
+    SeatReserveRequest,
+    SeatReserveResponse,
     SectionCreateRequest,
 )
 from common.schemas import (
@@ -345,6 +352,187 @@ async def update_section_capacity(
     await session.refresh(section)
 
     return SectionDTO.model_validate(section)
+
+
+# ---------------------------------------------------------
+# Seat Reservation Protocol Endpoints (ADR-001)
+# ---------------------------------------------------------
+
+
+@app.post(
+    "/sections/{id}/seats/reserve",
+    response_model=SeatReserveResponse,
+    responses={
+        409: {
+            "model": SeatReserveResponse,
+            "description": "Section full or reservation conflict",
+        },
+        404: {"description": "Section not found"},
+    },
+    tags=["Sections", "Seats"],
+)
+async def reserve_seat(
+    id: int,
+    payload: SeatReserveRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """Atomically reserve a seat in a section using an idempotent seat key (ADR-001).
+
+    Guarantees:
+      - Atomic conditional SQL update ensures zero overbooking (enrolled_count < capacity).
+      - Replaying with the same seat_key returns the existing active reservation idempotently.
+      - Returns HTTP 409 FULL when section capacity is exhausted.
+    """
+    seat_key = payload.seat_key.strip()
+
+    # 1. Check for existing reservation with this seat_key
+    existing_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
+    existing_res = (await session.execute(existing_stmt)).scalar_one_or_none()
+
+    if existing_res is not None:
+        if existing_res.section_id != id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Seat key '{seat_key}' was used for section {existing_res.section_id}.",
+            )
+        if existing_res.status == "ACTIVE":
+            return SeatReserveResponse(
+                reserved=True,
+                seat_key=seat_key,
+                detail="Seat already reserved.",
+            )
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "reserved": False,
+                "seat_key": seat_key,
+                "reason": existing_res.status,
+                "detail": f"Seat reservation has already been {existing_res.status.lower()}.",
+            },
+        )
+
+    # 2. Verify section exists
+    section = await session.get(Section, id)
+    if not section:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Section {id} not found.",
+        )
+
+    # 3. Atomic conditional update to allocate seat (Zero Overbooking Invariant)
+    alloc_stmt = (
+        update(Section)
+        .where(Section.id == id, Section.enrolled_count < Section.capacity)
+        .values(enrolled_count=Section.enrolled_count + 1)
+    )
+    result = await session.execute(alloc_stmt)
+
+    if result.rowcount == 0:
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "reserved": False,
+                "seat_key": seat_key,
+                "reason": "FULL",
+                "detail": f"Section {id} is at maximum capacity ({section.capacity}).",
+            },
+        )
+
+    # 4. Insert active reservation record
+    reservation = SeatReservation(
+        section_id=id,
+        seat_key=seat_key,
+        status="ACTIVE",
+    )
+    session.add(reservation)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Race condition on identical seat_key commit
+        await session.rollback()
+        winner_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
+        winner = (await session.execute(winner_stmt)).scalar_one_or_none()
+        if winner and winner.section_id == id and winner.status == "ACTIVE":
+            return SeatReserveResponse(reserved=True, seat_key=seat_key)
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content={
+                "reserved": False,
+                "seat_key": seat_key,
+                "reason": "CONFLICT",
+                "detail": "Seat reservation conflict.",
+            },
+        )
+
+    return SeatReserveResponse(reserved=True, seat_key=seat_key)
+
+
+@app.post(
+    "/sections/{id}/seats/release",
+    response_model=SeatReleaseResponse,
+    responses={
+        404: {"description": "Section not found"},
+    },
+    tags=["Sections", "Seats"],
+)
+async def release_seat(
+    id: int,
+    payload: SeatReleaseRequest,
+    session: AsyncSession = Depends(get_db),
+):
+    """Release a reserved seat in a section using idempotent seat key (ADR-001).
+
+    Guarantees:
+      - Atomically decrements enrolled_count if reservation was ACTIVE.
+      - Idempotent: repeated calls do not decrement enrolled_count multiple times.
+      - Releasing an unknown seat key marks it CANCELLED to prevent late reservation races.
+    """
+    seat_key = payload.seat_key.strip()
+
+    # 1. Verify section exists
+    section = await session.get(Section, id)
+    if not section:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Section {id} not found.",
+        )
+
+    # 2. Check for reservation record
+    existing_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
+    res_record = (await session.execute(existing_stmt)).scalar_one_or_none()
+
+    if res_record is None:
+        cancelled_res = SeatReservation(
+            section_id=id,
+            seat_key=seat_key,
+            status="CANCELLED",
+        )
+        session.add(cancelled_res)
+        try:
+            await session.commit()
+        except IntegrityError:
+            await session.rollback()
+        return SeatReleaseResponse(released=True, seat_key=seat_key, reason="CANCELLED")
+
+    if res_record.section_id != id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Seat key was assigned to section {res_record.section_id}, not {id}.",
+        )
+
+    if res_record.status == "ACTIVE":
+        dec_stmt = (
+            update(Section)
+            .where(Section.id == id, Section.enrolled_count > 0)
+            .values(enrolled_count=Section.enrolled_count - 1)
+        )
+        await session.execute(dec_stmt)
+        res_record.status = "RELEASED"
+        await session.commit()
+        return SeatReleaseResponse(released=True, seat_key=seat_key)
+
+    # Already RELEASED or CANCELLED
+    return SeatReleaseResponse(released=True, seat_key=seat_key, reason=res_record.status)
 
 
 # ---------------------------------------------------------

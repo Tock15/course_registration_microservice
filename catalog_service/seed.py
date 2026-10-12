@@ -11,7 +11,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from catalog_service.database import async_session_maker, init_db
-from catalog_service.models import Course, Prerequisite, Section
+from catalog_service.models import Course, Prerequisite, SeatReservation, Section
 
 # ---------------------------------------------------------
 # Academic Catalog Dataset
@@ -246,6 +246,7 @@ SECTIONS_DATA = [
 async def seed_catalog_data(session: AsyncSession) -> dict[str, int]:
     """Populate courses, prerequisites, and sections idempotently."""
     # 1. Clean existing records in reverse dependency order
+    await session.execute(delete(SeatReservation))
     await session.execute(delete(Section))
     await session.execute(delete(Prerequisite))
     await session.execute(delete(Course))

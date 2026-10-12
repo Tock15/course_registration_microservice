@@ -7,7 +7,7 @@ import pytest
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from catalog_service.models import Base, Course, Prerequisite, Section
+from catalog_service.models import Base, Course, Prerequisite, SeatReservation, Section
 from common.schemas import CourseDTO, SectionDTO
 
 
@@ -102,3 +102,39 @@ async def test_create_course_with_prerequisites_and_sections(async_test_session:
     assert section_dto.schedule_days == ["MON", "WED"]
     assert section_dto.capacity == 40
     assert section_dto.enrolled_count == 10
+
+
+@pytest.mark.asyncio
+async def test_seat_reservation_model_and_cascade_delete(async_test_session: AsyncSession):
+    session = async_test_session
+
+    course = Course(code="CS101", title="Intro", credits=3)
+    session.add(course)
+    await session.commit()
+
+    section = Section(course_code="CS101", section_number=1, capacity=30)
+    session.add(section)
+    await session.commit()
+
+    # Create seat reservation
+    res = SeatReservation(
+        section_id=section.id,
+        seat_key="UUID-12345",
+        status="ACTIVE",
+    )
+    session.add(res)
+    await session.commit()
+
+    # Query back
+    stmt = select(SeatReservation).where(SeatReservation.seat_key == "UUID-12345")
+    saved = (await session.execute(stmt)).scalar_one()
+    assert saved.section_id == section.id
+    assert saved.status == "ACTIVE"
+    assert saved.to_dict()["seat_key"] == "UUID-12345"
+
+    # Cascade delete on Section deletion
+    await session.delete(course)
+    await session.commit()
+
+    remaining_res = (await session.execute(stmt)).scalar_one_or_none()
+    assert remaining_res is None
