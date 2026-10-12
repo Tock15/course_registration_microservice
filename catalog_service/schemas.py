@@ -32,3 +32,35 @@ class SectionCreateRequest(BaseModel):
 
 class CapacityUpdateRequest(BaseModel):
     capacity: int = Field(..., gt=0, description="Updated maximum seat quota")
+
+
+class SeatReserveRequest(BaseModel):
+    seat_key: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Idempotent UUID token for seat reservation (ADR-001)",
+    )
+
+
+class SeatReserveResponse(BaseModel):
+    reserved: bool = Field(default=True, description="Whether the seat reservation succeeded")
+    seat_key: str = Field(..., description="The reservation seat key")
+    reason: str | None = Field(default=None, description="Failure reason, e.g. FULL or conflict status")
+    detail: str | None = Field(default=None, description="Human-readable status detail")
+
+
+class SeatReleaseRequest(BaseModel):
+    seat_key: str = Field(
+        ...,
+        min_length=1,
+        max_length=64,
+        description="Idempotent UUID token for seat release (ADR-001)",
+    )
+
+
+class SeatReleaseResponse(BaseModel):
+    released: bool = Field(default=True, description="Whether the seat release succeeded")
+    seat_key: str = Field(..., description="The released seat key")
+    reason: str | None = Field(default=None, description="Context reason, e.g. CANCELLED or RELEASED")
+    detail: str | None = Field(default=None, description="Human-readable status detail")
