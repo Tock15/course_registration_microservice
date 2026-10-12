@@ -3,6 +3,9 @@ import httpx
 import pytest
 from httpx import ASGITransport, AsyncClient
 
+from api_gateway.main import app as gateway_app
+from api_gateway.main import wire_gateway
+from api_gateway.rate_limiter import TokenBucketRateLimiter
 from enrollment_service.clients import CatalogClient, StudentClient
 from enrollment_service.database import (
     get_session_maker,
@@ -23,6 +26,7 @@ from tests.enrollment_support import (
     FakeUpstreams,
     RecordingPublisher,
 )
+from tests.gateway_support import FakeClock, FakeDownstreams, GatewayTestEnv
 
 
 @pytest.fixture
@@ -81,3 +85,27 @@ async def enrollment_env(tmp_path, enrollment_upstreams: FakeUpstreams):
     app.dependency_overrides.clear()
     await http.aclose()
     await engine.dispose()
+
+
+GATEWAY_RATE_LIMIT_CAPACITY = 5
+
+
+@pytest.fixture
+async def gateway_env():
+    """Gateway app wired to fake downstream services and a manual rate-limit clock."""
+    downstreams = FakeDownstreams()
+    clock = FakeClock()
+    http = httpx.AsyncClient(transport=httpx.MockTransport(downstreams.handler))
+    wire_gateway(
+        gateway_app,
+        http,
+        limiter=TokenBucketRateLimiter(GATEWAY_RATE_LIMIT_CAPACITY, 1.0, clock=clock),
+        login_limiter=TokenBucketRateLimiter(GATEWAY_RATE_LIMIT_CAPACITY, 1.0, clock=clock),
+    )
+
+    async with AsyncClient(
+        transport=ASGITransport(app=gateway_app), base_url="http://test"
+    ) as client:
+        yield GatewayTestEnv(client=client, downstreams=downstreams, clock=clock)
+
+    await http.aclose()
