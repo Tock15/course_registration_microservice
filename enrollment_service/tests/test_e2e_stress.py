@@ -1,17 +1,4 @@
-"""
-enrollment_service/tests/test_e2e_stress.py
-End-to-end zero-overbooking stress test through the real API Gateway.
-
-Skipped unless RUN_E2E=1, because it needs every service running:
-  - API Gateway (:8000) routing /api/v1/enrollments -> :8003 with X-Student-Id
-  - Student Service (:8001) with students STU_000..STU_099 who completed
-    CS102 and CS202
-  - Catalog Service (:8002) freshly seeded, including the seat endpoints
-    POST /sections/{id}/seats/reserve|release
-  - Enrollment Service (:8003) with an empty enrollment.db
-
-Run:  RUN_E2E=1 uv run pytest enrollment_service/tests/test_e2e_stress.py -v
-"""
+"""End-to-end stress test through the gateway; runs only with RUN_E2E=1."""
 import asyncio
 import os
 

@@ -1,18 +1,4 @@
-"""
-enrollment_service/main.py
-Enrollment Core Engine & Orchestrator (Port 8003).
-
-Responsibilities:
-  - Registration use cases (UC-03 enroll, UC-04 drop) via the Mediator: orchestrator.py
-  - Pluggable rule validation (Strategy Pattern): validation.py
-  - Enrollment lifecycle (State Pattern): state_machine.py
-  - Seat allocation against Catalog's seat counter: seat_allocator.py
-  - FIFO waitlist with automatic promotion: waitlist.py, reconciler.py
-  - Domain events to the Notification Service (Observer subject): events.py
-
-Identity comes only from the X-Student-Id header injected by the API Gateway;
-any student_id in a request body is ignored.
-"""
+"""Enrollment Service API (port 8003)."""
 import asyncio
 from contextlib import asynccontextmanager, suppress
 

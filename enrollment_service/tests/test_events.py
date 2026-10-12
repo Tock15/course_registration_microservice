@@ -1,8 +1,4 @@
-"""
-enrollment_service/tests/test_events.py
-The HTTP event publisher delivers events and never fails the caller when the
-Notification Service is down (NFR: fault tolerance).
-"""
+"""Event publisher delivery and outage tolerance."""
 import json
 
 import httpx

@@ -1,14 +1,4 @@
-"""
-enrollment_service/reconciler.py
-Background reconciler keeping enrollment.db and Catalog's seat counter in step.
-
-Each pass:
-  1. STAGED rows older than the stale threshold (crash mid-reservation)
-     -> REJECTED, keeping their seat token so step 2 returns the seat.
-  2. Terminal rows still holding a token -> release at Catalog (idempotent).
-  3. Waitlist pump: for each queued section, reserve a fresh token and promote
-     the head while Catalog has seats (fills seats after a capacity increase).
-"""
+"""Background reconciler: stale reservations, pending releases, waitlist pump."""
 import asyncio
 import logging
 from dataclasses import dataclass

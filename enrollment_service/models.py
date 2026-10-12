@@ -1,10 +1,4 @@
-"""
-enrollment_service/models.py
-SQLAlchemy 2.x ORM models for Enrollment and AuditLog entities.
-
-All timestamps are naive UTC (see utcnow) so SQL comparisons on the stored
-strings stay consistent; never compare against SQLite CURRENT_TIMESTAMP.
-"""
+"""ORM models for enrollments and the audit log (naive UTC timestamps)."""
 import json
 from datetime import UTC, datetime
 
@@ -27,12 +21,7 @@ class Base(DeclarativeBase):
 
 
 class Enrollment(Base):
-    """A student's registration record for one section.
-
-    seat_key invariant: a non-null seat_key means Catalog holds (or may hold)
-    a seat for this row. Active rows own their key; a terminal row that still
-    has a key is a pending release the reconciler will retry.
-    """
+    """Registration record; a non-null seat_key means Catalog holds a seat."""
 
     __tablename__ = "enrollments"
     __table_args__ = (

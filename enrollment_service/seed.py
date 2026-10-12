@@ -1,13 +1,4 @@
-"""
-enrollment_service/seed.py
-Resets enrollment.db to an empty schema.
-
-Usage:
-  uv run python -m enrollment_service.seed
-
-Seat counts live in catalog.db (Catalog owns the seat counter); reseed the
-catalog as well (`uv run python -m catalog_service.seed`) for a clean demo.
-"""
+"""Reset enrollment.db: uv run python -m enrollment_service.seed"""
 import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncEngine

@@ -1,8 +1,4 @@
-"""
-enrollment_service/tests/test_enrollment_api.py
-Integration tests for the enrollment REST API: validation outcomes,
-waitlisting, drops with automatic promotion, and upstream failure handling.
-"""
+"""Enrollment API integration tests."""
 from enrollment_service.tests.conftest import EnrollmentTestEnv
 
 

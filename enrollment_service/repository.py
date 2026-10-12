@@ -1,11 +1,4 @@
-"""
-enrollment_service/repository.py
-Data-access helpers for enrollment.db.
-
-Every function runs inside a transaction opened by the caller; database.py
-makes that a BEGIN IMMEDIATE transaction, so a read followed by a write in
-the same transaction is serialized against all other writers.
-"""
+"""Data-access helpers; callers own the transaction."""
 from datetime import datetime
 
 from sqlalchemy import select, update
@@ -99,11 +92,7 @@ async def apply_event(
     reason: str | None = None,
     **values,
 ) -> EnrollmentStatus | None:
-    """Move a row through the State Pattern lifecycle with a conditional UPDATE.
-
-    Returns the new status, or None if the row is missing or the event is not
-    legal from its current state.
-    """
+    """Apply a lifecycle event via conditional UPDATE; None if not allowed."""
     found = (
         await session.execute(
             select(Enrollment.status, Enrollment.student_id, Enrollment.section_id)

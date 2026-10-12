@@ -1,7 +1,4 @@
-"""
-enrollment_service/schemas.py
-Service-specific Pydantic schemas extending the shared enrollment DTOs.
-"""
+"""Enrollment-specific response schemas."""
 from datetime import datetime
 
 from pydantic import BaseModel, Field

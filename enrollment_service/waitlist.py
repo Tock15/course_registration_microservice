@@ -1,12 +1,4 @@
-"""
-enrollment_service/waitlist.py
-Waitlist Manager: FIFO queue per section with automatic promotion.
-
-When an ENROLLED student drops and the section has a queue, the dropper's
-seat token moves to the queue head inside one local ACID transaction: the
-seat never returns to Catalog, so nobody can jump the queue and no remote
-call is needed.
-"""
+"""FIFO waitlist with automatic promotion."""
 from dataclasses import dataclass
 
 from sqlalchemy import and_, func, or_, select, update

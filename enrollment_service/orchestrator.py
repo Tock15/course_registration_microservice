@@ -1,15 +1,4 @@
-"""
-enrollment_service/orchestrator.py
-Mediator Pattern: coordinates Student, Catalog, the rule engine, seat
-allocation and event publishing so none of them know about each other.
-
-Enroll:
-  Phase 1  parallel read-only checks (profile, eligibility, section), then
-           parallel course credits + prerequisite DAG validation.
-  Phase 2  pure rule evaluation (Strategy) over the gathered context.
-  Phase 3  seat allocation against Catalog (seat_allocator.py).
-  Phase 4  fire-and-forget domain events after commit.
-"""
+"""Mediator coordinating validation, seat allocation and events."""
 import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker

@@ -1,14 +1,4 @@
-"""
-enrollment_service/database.py
-Async SQLite engine & session factory for enrollment.db using SQLAlchemy 2.x.
-
-Concurrency setup:
-  - WAL journal so readers never block the single writer.
-  - busy_timeout so a waiting writer queues instead of failing immediately.
-  - SQLAlchemy emits BEGIN IMMEDIATE (aiosqlite "own BEGIN" recipe), so every
-    transaction takes the write lock up front. Transactions that read then
-    write can never hit SQLITE_BUSY on a lock upgrade mid-transaction.
-"""
+"""Async SQLite engine (WAL, busy timeout, BEGIN IMMEDIATE) and sessions."""
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,

@@ -1,9 +1,4 @@
-"""
-enrollment_service/tests/test_concurrency.py
-In-process concurrency tests: burst traffic against one section must never
-overbook, must keep enrollment.db consistent with Catalog's seat counter, and
-must preserve FIFO order on the waitlist.
-"""
+"""Concurrency tests: zero overbooking and FIFO under burst load."""
 import asyncio
 
 from enrollment_service import waitlist

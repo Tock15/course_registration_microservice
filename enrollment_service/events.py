@@ -1,10 +1,4 @@
-"""
-enrollment_service/events.py
-Domain event publishing (subject side of the Observer Pattern).
-
-Events are sent fire-and-forget after the database commit: a slow or failed
-Notification Service never blocks or aborts a seat transaction.
-"""
+"""Fire-and-forget domain event publishing (Observer subject)."""
 import asyncio
 import logging
 from abc import ABC, abstractmethod

@@ -1,7 +1,4 @@
-"""
-enrollment_service/tests/test_state_machine.py
-Unit tests for the State Pattern enrollment lifecycle.
-"""
+"""State machine tests."""
 import pytest
 
 from common.schemas import EnrollmentStatus as S

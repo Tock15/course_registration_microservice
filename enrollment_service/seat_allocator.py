@@ -1,19 +1,4 @@
-"""
-enrollment_service/seat_allocator.py
-Seat allocation against the Catalog-owned seat counter.
-
-Catalog runs the atomic conditional UPDATE (zero overbooking); this module
-coordinates it with enrollment.db using an idempotent seat token:
-
-  T1 (local)  INSERT row STAGED with a fresh seat_key
-  Remote      Catalog reserve(section, seat_key)  -- retried with the same key
-  T2 (local)  STAGED -> ENROLLED   (reserved)
-              STAGED -> WAITLISTED (full, token dropped)
-              STAGED -> REJECTED   (Catalog unreachable, token kept -> released)
-
-No connection is held while waiting on Catalog. If the process dies between
-T1 and T2, the reconciler rejects the stale STAGED row and releases its token.
-"""
+"""Seat allocation against Catalog using idempotent seat tokens."""
 import logging
 from dataclasses import dataclass
 from uuid import uuid4
@@ -121,10 +106,7 @@ class SeatAllocator:
         return Allocation(enrollment_id, status)
 
     async def release(self, enrollment_id: int, section_id: int, seat_key: str) -> bool:
-        """Return a token's seat to Catalog, then forget the token locally.
-
-        Returns False if Catalog is unreachable; the reconciler retries later.
-        """
+        """Return a seat to Catalog; False if unreachable (reconciler retries)."""
         try:
             await self._catalog.release_seat(section_id, seat_key)
         except UpstreamUnavailable as exc:

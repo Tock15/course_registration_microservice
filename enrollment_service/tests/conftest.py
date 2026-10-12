@@ -1,13 +1,4 @@
-"""
-enrollment_service/tests/conftest.py
-Shared fixtures: an isolated file-based enrollment.db, mocked upstream
-services served through httpx.MockTransport (so the real HTTP clients run),
-and an ASGI test client with dependency overrides.
-
-FakeUpstreams' Catalog implements the proposed seat contract:
-  POST /sections/{id}/seats/reserve {"seat_key"}  -> 200 reserved | 409 FULL
-  POST /sections/{id}/seats/release {"seat_key"}  -> 200, idempotent
-"""
+"""Fixtures: temp file DB, mocked Student/Catalog upstreams, ASGI client."""
 import asyncio
 import json
 from dataclasses import dataclass

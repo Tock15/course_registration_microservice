@@ -1,12 +1,4 @@
-"""
-enrollment_service/clients.py
-HTTP clients for the upstream Student and Catalog services.
-
-All clients share one httpx.AsyncClient (connection pooling under burst load).
-Failures are normalized into two exceptions the API maps to status codes:
-  - UpstreamNotFound    -> 404 (student / section / course does not exist)
-  - UpstreamUnavailable -> 503 (network error, timeout, 5xx, unexpected reply)
-"""
+"""HTTP clients for the Student and Catalog services."""
 from urllib.parse import quote
 
 import httpx
@@ -88,13 +80,7 @@ class StudentClient(_ServiceClient):
 
 
 class CatalogClient(_ServiceClient):
-    """Catalog reads plus the seat contract (Catalog owns the seat counter).
-
-    Seat contract (implemented by the Catalog team):
-      POST /sections/{id}/seats/reserve {"seat_key"} -> 200 reserved | 409 full
-      POST /sections/{id}/seats/release {"seat_key"} -> 200 (idempotent)
-    Both are idempotent on seat_key, so retries with the same key are safe.
-    """
+    """Catalog reads plus the idempotent seat reserve/release contract."""
 
     service_name = "catalog_service"
 
@@ -128,10 +114,7 @@ class CatalogClient(_ServiceClient):
         return PrereqValidationResponse.model_validate(res.json())
 
     async def reserve_seat(self, section_id: int, seat_key: str, attempts: int = 2) -> bool:
-        """Return True if a seat is held for seat_key, False if the section is full.
-
-        Network failures are retried with the same key (idempotent at Catalog).
-        """
+        """Return True if a seat is held for seat_key, False if full."""
         for attempt in range(1, attempts + 1):
             try:
                 res = await self._request(

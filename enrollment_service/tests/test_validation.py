@@ -1,7 +1,4 @@
-"""
-enrollment_service/tests/test_validation.py
-Unit tests for the Strategy Pattern rule engine (pure, no I/O).
-"""
+"""Rule engine tests."""
 from common.schemas import (
     PrereqValidationResponse,
     SectionDTO,

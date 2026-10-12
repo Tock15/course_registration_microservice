@@ -1,14 +1,4 @@
-"""
-enrollment_service/validation.py
-Strategy Pattern: pluggable enrollment rules behind a common interface.
-
-The orchestrator (Mediator) gathers every remote fact up front, so each rule
-is a pure function of an EnrollmentContext: no I/O, trivially unit-testable.
-Adding a rule means adding a class to the engine's list (Open/Closed).
-
-WAITLISTED rows count as active for the credit and conflict rules, so a later
-auto-promotion off the waitlist can never break either limit.
-"""
+"""Pluggable enrollment rules (Strategy pattern)."""
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from dataclasses import dataclass, field

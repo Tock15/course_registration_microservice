@@ -1,8 +1,4 @@
-"""
-enrollment_service/tests/test_reconciler.py
-Tests for the background reconciler: crash recovery of stale STAGED rows,
-retried seat releases, and the waitlist pump after capacity increases.
-"""
+"""Reconciler tests."""
 from datetime import timedelta
 
 from common.schemas import EnrollmentStatus

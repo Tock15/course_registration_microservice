@@ -1,7 +1,4 @@
-"""
-enrollment_service/config.py
-Environment-driven settings for the Enrollment Service.
-"""
+"""Environment-driven settings for the Enrollment Service."""
 import os
 from pathlib import Path
 

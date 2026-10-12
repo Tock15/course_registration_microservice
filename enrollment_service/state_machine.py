@@ -1,19 +1,4 @@
-"""
-enrollment_service/state_machine.py
-State Pattern governing the enrollment lifecycle.
-
-    STAGED ──SEAT_RESERVED──────▶ ENROLLED ──DROP──▶ DROPPED
-       │                             ▲
-       ├──SECTION_FULL──▶ WAITLISTED ┘ (PROMOTE)
-       │                     └──DROP──▶ DROPPED
-       └──RESERVATION_FAILED──▶ REJECTED
-
-STAGED means "seat request in flight at Catalog". OFFERED from the shared
-EnrollmentStatus enum is unused: waitlisted students are auto-enrolled.
-
-The repository derives its conditional SQL (WHERE status IN ...) from this
-module, so code and database agree on which transitions are legal.
-"""
+"""Enrollment lifecycle (State pattern)."""
 from abc import ABC
 from enum import Enum
 from functools import cache
