@@ -22,7 +22,7 @@ DATABASE_URL = os.getenv(
     "CATALOG_DATABASE_URL",
     f"sqlite+aiosqlite:///{DEFAULT_DB_FILE.as_posix()}",
 )
-SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "5000"))
+SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "15000"))
 
 
 def make_engine(url: str) -> AsyncEngine:

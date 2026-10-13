@@ -7,6 +7,7 @@ from common.events import CourseDroppedEvent, EnrollmentConfirmedEvent
 from common.schemas import EnrollmentStatus
 from enrollment_service import repository, waitlist
 from enrollment_service.clients import CatalogClient, StudentClient
+from enrollment_service.database import run_with_retry
 from enrollment_service.events import EventPublisher, WaitlistJoinedEvent
 from enrollment_service.models import Enrollment
 from enrollment_service.schemas import (
@@ -63,8 +64,11 @@ class EnrollmentOrchestrator:
                 student_id, section.course_code, profile.completed_courses
             ),
         )
-        async with self._sessions() as session, session.begin():
-            active = await repository.active_enrollments(session, student_id)
+        async def _read_active():
+            async with self._sessions() as session:
+                return await repository.active_enrollments(session, student_id)
+
+        active = await run_with_retry(_read_active)
 
         ctx = EnrollmentContext(
             student=profile,
@@ -76,15 +80,18 @@ class EnrollmentOrchestrator:
         )
         verdict = self._rules.validate(ctx)
         if not verdict.is_valid:
-            async with self._sessions() as session, session.begin():
-                repository.record_audit(
-                    session,
-                    student_id=student_id,
-                    section_id=section.id,
-                    action="REJECTED",
-                    to_status=EnrollmentStatus.REJECTED.value,
-                    detail=f"{verdict.rule_name}: {verdict.error_message}",
-                )
+            async def _record_reject():
+                async with self._sessions() as session, session.begin():
+                    repository.record_audit(
+                        session,
+                        student_id=student_id,
+                        section_id=section.id,
+                        action="REJECTED",
+                        to_status=EnrollmentStatus.REJECTED.value,
+                        detail=f"{verdict.rule_name}: {verdict.error_message}",
+                    )
+
+            await run_with_retry(_record_reject)
             return EnrollmentResult(
                 student_id=student_id,
                 section_id=section.id,
@@ -135,8 +142,11 @@ class EnrollmentOrchestrator:
         )
 
     async def drop(self, student_id: str, section_id: int) -> EnrollmentResult:
-        async with self._sessions() as session, session.begin():
-            outcome = await waitlist.drop(session, student_id, section_id)
+        async def _do_drop():
+            async with self._sessions() as session, session.begin():
+                return await waitlist.drop(session, student_id, section_id)
+
+        outcome = await run_with_retry(_do_drop)
 
         if outcome.pending_release_key:
             await self._seats.release(
@@ -180,29 +190,32 @@ class EnrollmentOrchestrator:
         )
 
     async def list_for_student(self, student_id: str) -> MyEnrollmentsResponse:
-        async with self._sessions() as session, session.begin():
-            rows = await repository.student_enrollments(session, student_id)
-            records = [
-                EnrollmentRecord(
-                    enrollment_id=row.id,
-                    section_id=row.section_id,
-                    course_code=row.course_code,
-                    credits=row.credits,
-                    status=EnrollmentStatus(row.status),
-                    schedule_days=row.schedule_days,
-                    start_time=row.start_time,
-                    end_time=row.end_time,
-                    waitlist_position=(
-                        await waitlist.position(session, row.id)
-                        if row.status == EnrollmentStatus.WAITLISTED.value
-                        else None
-                    ),
-                    reason=row.reason,
-                    created_at=row.created_at,
-                    updated_at=row.updated_at,
-                )
-                for row in rows
-            ]
+        async def _fetch():
+            async with self._sessions() as session, session.begin():
+                rows = await repository.student_enrollments(session, student_id)
+                return [
+                    EnrollmentRecord(
+                        enrollment_id=row.id,
+                        section_id=row.section_id,
+                        course_code=row.course_code,
+                        credits=row.credits,
+                        status=EnrollmentStatus(row.status),
+                        schedule_days=row.schedule_days,
+                        start_time=row.start_time,
+                        end_time=row.end_time,
+                        waitlist_position=(
+                            await waitlist.position(session, row.id)
+                            if row.status == EnrollmentStatus.WAITLISTED.value
+                            else None
+                        ),
+                        reason=row.reason,
+                        created_at=row.created_at,
+                        updated_at=row.updated_at,
+                    )
+                    for row in rows
+                ]
+
+        records = await run_with_retry(_fetch)
 
         total = sum(r.credits for r in records if r.status is EnrollmentStatus.ENROLLED)
         return MyEnrollmentsResponse(
