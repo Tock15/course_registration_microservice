@@ -6,7 +6,9 @@ import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
@@ -20,13 +22,31 @@ DATABASE_URL = os.getenv(
     "STUDENT_DATABASE_URL",
     f"sqlite+aiosqlite:///{DEFAULT_DB_FILE.as_posix()}",
 )
+SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "15000"))
+
+
+def make_engine(url: str) -> AsyncEngine:
+    """Create an async SQLite engine configured with WAL and busy timeout."""
+    eng = create_async_engine(
+        url,
+        echo=False,
+        connect_args={"check_same_thread": False},
+    )
+
+    if "sqlite" in url:
+        @event.listens_for(eng.sync_engine, "connect")
+        def _on_connect(dbapi_connection, _connection_record) -> None:
+            dbapi_connection.isolation_level = None
+            cursor = dbapi_connection.cursor()
+            cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
+            cursor.close()
+
+    return eng
+
 
 # Create asynchronous engine
-engine = create_async_engine(
-    DATABASE_URL,
-    echo=False,
-    connect_args={"check_same_thread": False},
-)
+engine = make_engine(DATABASE_URL)
 
 # Async session factory
 async_session_maker = async_sessionmaker(
@@ -37,9 +57,9 @@ async_session_maker = async_sessionmaker(
 )
 
 
-async def init_db() -> None:
+async def init_db(bind: AsyncEngine = engine) -> None:
     """Initialize database tables for Student Profile Service."""
-    async with engine.begin() as conn:
+    async with bind.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
 

@@ -137,6 +137,9 @@ uv run uvicorn enrollment_service.main:app --port 8003 --reload
 
 # Notification Service (:8004)
 uv run uvicorn notification_service.main:app --port 8004 --reload
+
+# Load Test Bench Web UI (:8080)
+uv run uvicorn load_tester.main:app --port 8080 --reload
 ```
 
 ---

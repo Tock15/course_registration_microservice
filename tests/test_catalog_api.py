@@ -237,7 +237,7 @@ async def test_prerequisite_validation_endpoint(api_client: AsyncClient):
     fail_res = await client.post(
         "/validate-prereqs",
         json={
-            "student_id": "STU_002",
+            "student_id": "STU_003",
             "course_code": "CS102",
             "completed_courses": [],
         },

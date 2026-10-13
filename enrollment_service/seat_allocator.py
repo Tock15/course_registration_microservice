@@ -13,6 +13,7 @@ from enrollment_service.clients import (
     UpstreamNotFound,
     UpstreamUnavailable,
 )
+from enrollment_service.database import run_with_retry
 from enrollment_service.state_machine import LifecycleEvent
 
 logger = logging.getLogger(__name__)
@@ -41,7 +42,7 @@ class SeatAllocator:
     ) -> Allocation:
         seat_key = str(uuid4())
 
-        try:
+        async def _insert_staged():
             async with self._sessions() as session, session.begin():
                 if await waitlist.has_waitlist(session, section.id):
                     row = await repository.add_enrollment(
@@ -52,7 +53,7 @@ class SeatAllocator:
                         status=EnrollmentStatus.WAITLISTED,
                         reason="Joined behind the existing waitlist.",
                     )
-                    queued = True
+                    return row.id, row.created_at, True
                 else:
                     row = await repository.add_enrollment(
                         session,
@@ -62,8 +63,10 @@ class SeatAllocator:
                         status=EnrollmentStatus.STAGED,
                         seat_key=seat_key,
                     )
-                    queued = False
-                enrollment_id, arrived_at = row.id, row.created_at
+                    return row.id, row.created_at, False
+
+        try:
+            enrollment_id, arrived_at, queued = await run_with_retry(_insert_staged)
         except IntegrityError as exc:
             raise DuplicateEnrollmentError(
                 f"Student '{student_id}' already has an active request "
@@ -125,11 +128,15 @@ class SeatAllocator:
     async def _finish(
         self, enrollment_id: int, event: LifecycleEvent, *, reason: str | None = None, **values
     ) -> EnrollmentStatus | None:
-        async with self._sessions() as session, session.begin():
-            return await repository.apply_event(
-                session, enrollment_id, event, reason=reason, **values
-            )
+        async def _do_finish():
+            async with self._sessions() as session, session.begin():
+                return await repository.apply_event(
+                    session, enrollment_id, event, reason=reason, **values
+                )
+        return await run_with_retry(_do_finish)
 
     async def _position(self, enrollment_id: int) -> int | None:
-        async with self._sessions() as session, session.begin():
-            return await waitlist.position(session, enrollment_id)
+        async def _do_position():
+            async with self._sessions() as session, session.begin():
+                return await waitlist.position(session, enrollment_id)
+        return await run_with_retry(_do_position)

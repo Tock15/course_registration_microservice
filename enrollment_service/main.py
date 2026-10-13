@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, status
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from common.schemas import DropRequest, EnrollmentRequest, EnrollmentStatus
@@ -121,6 +122,15 @@ async def duplicate_enrollment_handler(_: Request, exc: DuplicateEnrollmentError
 @app.exception_handler(NotEnrolledError)
 async def not_enrolled_handler(_: Request, exc: NotEnrolledError):
     return JSONResponse(status_code=status.HTTP_404_NOT_FOUND, content={"detail": str(exc)})
+
+
+@app.exception_handler(DBAPIError)
+async def db_busy_handler(_: Request, exc: DBAPIError):
+    return JSONResponse(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        content={"detail": "Database busy under peak registration load; please retry."},
+        headers={"Retry-After": "1"},
+    )
 
 
 @app.get("/health", tags=["Health"])

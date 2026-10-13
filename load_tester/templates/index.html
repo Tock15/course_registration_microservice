@@ -1,0 +1,1010 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Load Test & Concurrency Bench — KMITL Course Registration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --brand: #FF5722;
+      --brand-hover: #E64A19;
+      --brand-light: #FFF3E0;
+      --bg: #0F172A;
+      --card-bg: #1E293B;
+      --card-subtle: #334155;
+      --border: #334155;
+      --border-light: #475569;
+      --text: #F8FAFC;
+      --text-muted: #94A3B8;
+      --success: #10B981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --waitlist: #F59E0B;
+      --waitlist-bg: rgba(245, 158, 11, 0.15);
+      --error: #EF4444;
+      --error-bg: rgba(239, 68, 68, 0.15);
+      --purple: #8B5CF6;
+      --purple-bg: rgba(139, 92, 246, 0.15);
+      --sky: #38BDF8;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #0B1120;
+      border-bottom: 1px solid var(--border);
+      padding: 1rem 2rem;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .brand-title {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .brand-badge {
+      background: var(--brand);
+      color: white;
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      letter-spacing: 0.05em;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .subtitle {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .services-status {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .service-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      padding: 0.3rem 0.65rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      font-family: 'JetBrains Mono', monospace;
+      color: var(--text-muted);
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #64748B;
+      display: inline-block;
+    }
+    .dot.online { background: var(--success); box-shadow: 0 0 8px var(--success); }
+    .dot.offline { background: var(--error); box-shadow: 0 0 8px var(--error); }
+
+    main {
+      flex: 1;
+      padding: 1.5rem 2rem;
+      max-width: 1440px;
+      width: 100%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 360px 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (max-width: 1024px) {
+      main { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .panel-title {
+      font-size: 1rem;
+      font-weight: 700;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    select, input[type="text"], input[type="number"] {
+      background: #0B1120;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: white;
+      padding: 0.6rem 0.8rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    select:focus, input:focus {
+      border-color: var(--brand);
+    }
+
+    .range-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    input[type="range"] {
+      flex: 1;
+      accent-color: var(--brand);
+    }
+
+    .range-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      font-weight: 600;
+      min-width: 45px;
+      text-align: right;
+    }
+
+    .preset-btns {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    .btn-preset {
+      background: #0F172A;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0.45rem 0.6rem;
+      font-size: 0.75rem;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s;
+    }
+
+    .btn-preset:hover {
+      border-color: var(--brand);
+      color: white;
+      background: #1A2234;
+    }
+
+    .btn-primary {
+      background: var(--brand);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 0.85rem;
+      font-size: 0.95rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      transition: background 0.2s, transform 0.1s;
+    }
+
+    .btn-primary:hover { background: var(--brand-hover); }
+    .btn-primary:active { transform: translateY(1px); }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-secondary {
+      background: #0F172A;
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem;
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-secondary:hover { color: white; border-color: var(--border-light); }
+
+    /* Results Dashboard */
+    .dashboard-view {
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 1rem;
+    }
+
+    .stat-card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .stat-card::after {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+    }
+
+    .stat-card.card-success::after { background: var(--success); }
+    .stat-card.card-waitlist::after { background: var(--waitlist); }
+    .stat-card.card-failed::after { background: var(--error); }
+    .stat-card.card-rate::after { background: var(--purple); }
+    .stat-card.card-total::after { background: var(--sky); }
+
+    .stat-label {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .stat-value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1.85rem;
+      font-weight: 700;
+      color: white;
+    }
+
+    .stat-sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    /* Invariant Banner */
+    .invariant-banner {
+      background: #0F172A;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem 1.25rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+    }
+
+    .invariant-banner.pass {
+      border-color: rgba(16, 185, 129, 0.5);
+      background: rgba(16, 185, 129, 0.05);
+    }
+
+    .invariant-banner.violation {
+      border-color: rgba(239, 68, 68, 0.5);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .invariant-title {
+      font-size: 0.95rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .invariant-desc {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    .seat-telemetry {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      background: #0B1120;
+      padding: 0.4rem 0.8rem;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+
+    /* Progress & Charts */
+    .progress-bar-wrap {
+      background: #0B1120;
+      border-radius: 8px;
+      height: 12px;
+      overflow: hidden;
+      border: 1px solid var(--border);
+      position: relative;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      width: 0%;
+      background: linear-gradient(90deg, var(--brand), #FF8A65);
+      transition: width 0.15s ease-out;
+    }
+
+    .ratio-bar {
+      display: flex;
+      height: 20px;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #0B1120;
+      border: 1px solid var(--border);
+      margin-top: 0.5rem;
+    }
+
+    .ratio-seg {
+      height: 100%;
+      transition: width 0.3s;
+    }
+    .ratio-seg.s-success { background: var(--success); }
+    .ratio-seg.s-waitlist { background: var(--waitlist); }
+    .ratio-seg.s-failed { background: var(--error); }
+    .ratio-seg.s-rate { background: var(--purple); }
+
+    /* Performance Cards */
+    .perf-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+      gap: 0.75rem;
+      background: #0B1120;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 0.85rem;
+    }
+
+    .perf-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+    }
+
+    .perf-label {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+    }
+
+    .perf-val {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: white;
+    }
+
+    /* Table & Log */
+    .log-panel {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .log-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .filters {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    .filter-btn {
+      background: #0F172A;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 0.3rem 0.65rem;
+      border-radius: 20px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+
+    .filter-btn.active {
+      background: var(--brand);
+      color: white;
+      border-color: var(--brand);
+    }
+
+    .table-container {
+      max-height: 420px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0B1120;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.8rem;
+      text-align: left;
+    }
+
+    th {
+      background: #111827;
+      padding: 0.65rem 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      position: sticky;
+      top: 0;
+      z-index: 2;
+    }
+
+    td {
+      padding: 0.55rem 0.85rem;
+      border-bottom: 1px solid #1E293B;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.75rem;
+    }
+
+    tr:hover td {
+      background: rgba(255, 255, 255, 0.02);
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.45rem;
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 0.7rem;
+    }
+
+    .badge-SUCCESS { background: var(--success-bg); color: var(--success); }
+    .badge-WAITLISTED { background: var(--waitlist-bg); color: var(--waitlist); }
+    .badge-RATE_LIMITED { background: var(--purple-bg); color: var(--purple); }
+    .badge-REJECTED, .badge-ERROR { background: var(--error-bg); color: var(--error); }
+
+    .spinner {
+      border: 2px solid rgba(255, 255, 255, 0.2);
+      border-top: 2px solid white;
+      border-radius: 50%;
+      width: 14px;
+      height: 14px;
+      animation: spin 0.8s linear infinite;
+      display: inline-block;
+    }
+
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand-title">
+      <span class="brand-badge">KMITL</span>
+      <div>
+        <h1>Course Registration Concurrency Bench</h1>
+        <div class="subtitle">Microservices Zero-Overbooking & Rate Limiting Stress Test Harness</div>
+      </div>
+    </div>
+    <div class="services-status" id="servicesStatus">
+      <div class="service-pill" id="pill-gateway"><span class="dot" id="dot-gateway"></span> Gateway :8000</div>
+      <div class="service-pill" id="pill-student"><span class="dot" id="dot-student"></span> Student :8001</div>
+      <div class="service-pill" id="pill-catalog"><span class="dot" id="dot-catalog"></span> Catalog :8002</div>
+      <div class="service-pill" id="pill-enrollment"><span class="dot" id="dot-enrollment"></span> Enrollment :8003</div>
+      <div class="service-pill" id="pill-notification"><span class="dot" id="dot-notification"></span> Notification :8004</div>
+      <button class="btn-secondary" style="padding: 0.25rem 0.5rem; font-size: 0.75rem;" onclick="pingServices()">Refresh</button>
+    </div>
+  </header>
+
+  <main>
+    <!-- Left Configuration Panel -->
+    <aside class="panel">
+      <div class="panel-title">
+        <span>Test Configuration</span>
+        <span style="font-size: 0.75rem; color: var(--text-muted);">Async HTTPX</span>
+      </div>
+
+      <div class="form-group">
+        <label>Scenario Presets</label>
+        <div class="preset-btns">
+          <button class="btn-preset" onclick="applyPreset('zero_overbooking')">
+            <b>Zero-Overbooking</b><br>100 Reqs • Sec 101 (Cap 10)
+          </button>
+          <button class="btn-preset" onclick="applyPreset('rate_limiter')">
+            <b>Rate Limiter</b><br>30 Reqs • High Burst
+          </button>
+          <button class="btn-preset" onclick="applyPreset('quick_smoke')">
+            <b>Smoke Test</b><br>10 Reqs • Concurrency 5
+          </button>
+          <button class="btn-preset" onclick="applyPreset('heavy_stress')">
+            <b>Heavy Burst</b><br>200 Reqs • Concurrency 50
+          </button>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Target Ingress Route</label>
+        <select id="targetType">
+          <option value="gateway">API Gateway (:8000) — [Protection Proxy + JWT]</option>
+          <option value="direct">Direct Enrollment (:8003) — [Bypass Gateway]</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <label>Course Section Target</label>
+        <select id="sectionSelect">
+          <option value="101" data-capacity="10">Section 101 — CS301 (Capacity: 10 seats) [Benchmark Target]</option>
+          <option value="102" data-capacity="50">Section 102 — CS301 (Capacity: 50 seats)</option>
+          <option value="103" data-capacity="60">Section 103 — CS101 (Capacity: 60 seats)</option>
+          <option value="104" data-capacity="45">Section 104 — CS102 (Capacity: 45 seats)</option>
+          <option value="105" data-capacity="40">Section 105 — CS202 (Capacity: 40 seats)</option>
+        </select>
+      </div>
+
+      <div class="form-group">
+        <div style="display:flex; justify-content:space-between;">
+          <label>Total Concurrent Requests</label>
+          <span class="range-val" id="totalReqsVal">100</span>
+        </div>
+        <div class="range-wrap">
+          <input type="range" id="totalReqs" min="5" max="500" step="5" value="100" oninput="updateRangeVal('totalReqsVal', this.value)">
+        </div>
+      </div>
+
+      <div class="form-group">
+        <div style="display:flex; justify-content:space-between;">
+          <label>Parallel Concurrency</label>
+          <span class="range-val" id="concurrencyVal">20</span>
+        </div>
+        <div class="range-wrap">
+          <input type="range" id="concurrency" min="1" max="100" step="1" value="20" oninput="updateRangeVal('concurrencyVal', this.value)">
+        </div>
+      </div>
+
+      <div class="form-group" style="flex-direction:row; align-items:center; gap: 0.5rem;">
+        <input type="checkbox" id="autoProvision" checked style="accent-color: var(--brand);">
+        <label for="autoProvision" style="font-size: 0.75rem; text-transform:none; color: var(--text);">Auto-provision test students with CS prerequisites</label>
+      </div>
+
+      <button class="btn-primary" id="runBtn" onclick="runLoadTest()">
+        <span id="runBtnText">Launch Load Test</span>
+      </button>
+
+      <div style="display:flex; gap: 0.5rem; margin-top: 0.5rem;">
+        <button class="btn-secondary" style="flex: 1;" onclick="resetDatabases()">
+          Reset Databases & Reseed
+        </button>
+      </div>
+    </aside>
+
+    <!-- Right Dashboard View -->
+    <section class="dashboard-view">
+      <!-- 4 Core Metric Cards -->
+      <div class="stats-grid">
+        <div class="stat-card card-total">
+          <span class="stat-label">Total Requests</span>
+          <span class="stat-value" id="cardTotal">0</span>
+          <span class="stat-sub" id="cardCompleted">0 completed</span>
+        </div>
+
+        <div class="stat-card card-success">
+          <span class="stat-label">Succeeded (Enrolled)</span>
+          <span class="stat-value" id="cardSuccess" style="color: var(--success);">0</span>
+          <span class="stat-sub" id="cardSuccessPct">0.0% of total</span>
+        </div>
+
+        <div class="stat-card card-waitlist">
+          <span class="stat-label">Waitlisted (409 FIFO)</span>
+          <span class="stat-value" id="cardWaitlist" style="color: var(--waitlist);">0</span>
+          <span class="stat-sub" id="cardWaitlistPct">0.0% of total</span>
+        </div>
+
+        <div class="stat-card card-failed">
+          <span class="stat-label">Total Failed</span>
+          <span class="stat-value" id="cardFailed" style="color: var(--error);">0</span>
+          <span class="stat-sub" id="cardFailedDetail">0 rejects • 0 errors</span>
+        </div>
+
+        <div class="stat-card card-rate">
+          <span class="stat-label">Rate Limited (429)</span>
+          <span class="stat-value" id="cardRate" style="color: var(--purple);">0</span>
+          <span class="stat-sub">Protection Proxy</span>
+        </div>
+      </div>
+
+      <!-- Zero-Overbooking Invariant Banner -->
+      <div class="invariant-banner" id="invariantBanner">
+        <div>
+          <div class="invariant-title" id="invariantTitle">
+            <span>🛡️ Academic Invariant: Zero Overbooking</span>
+          </div>
+          <div class="invariant-desc" id="invariantDesc">
+            Ready to evaluate atomic seat allocation against section capacity.
+          </div>
+        </div>
+        <div class="seat-telemetry" id="seatTelemetry">
+          Capacity: — | Enrolled: —
+        </div>
+      </div>
+
+      <!-- Live Progress Bar -->
+      <div class="panel" style="padding: 1rem; gap: 0.5rem;">
+        <div style="display:flex; justify-content:space-between; font-size: 0.75rem; color: var(--text-muted); font-weight:600;">
+          <span id="progressText">Idle — Waiting for test trigger</span>
+          <span id="progressPct">0%</span>
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" id="progressBar"></div>
+        </div>
+        <div class="ratio-bar">
+          <div class="ratio-seg s-success" id="segSuccess" style="width: 0%;"></div>
+          <div class="ratio-seg s-waitlist" id="segWaitlist" style="width: 0%;"></div>
+          <div class="ratio-seg s-rate" id="segRate" style="width: 0%;"></div>
+          <div class="ratio-seg s-failed" id="segFailed" style="width: 0%;"></div>
+        </div>
+      </div>
+
+      <!-- Performance Telemetry Strip -->
+      <div class="perf-strip">
+        <div class="perf-item">
+          <span class="perf-label">Throughput</span>
+          <span class="perf-val" id="perfRPS">— req/s</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">Total Time</span>
+          <span class="perf-val" id="perfDuration">— s</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">Min Latency</span>
+          <span class="perf-val" id="perfMin">— ms</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">Avg Latency</span>
+          <span class="perf-val" id="perfAvg">— ms</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">Median (p50)</span>
+          <span class="perf-val" id="perfP50">— ms</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">p95 Latency</span>
+          <span class="perf-val" id="perfP95">— ms</span>
+        </div>
+        <div class="perf-item">
+          <span class="perf-label">Max Latency</span>
+          <span class="perf-val" id="perfMax">— ms</span>
+        </div>
+      </div>
+
+      <!-- Granular Request Log Table -->
+      <div class="log-panel">
+        <div class="log-header">
+          <div style="font-weight: 700; font-size: 0.95rem;">Granular Request Stream</div>
+          <div class="filters">
+            <button class="filter-btn active" onclick="setFilter('ALL', this)">All (<span id="cntAll">0</span>)</button>
+            <button class="filter-btn" onclick="setFilter('SUCCESS', this)">Succeeded (<span id="cntSuccess">0</span>)</button>
+            <button class="filter-btn" onclick="setFilter('WAITLISTED', this)">Waitlisted (<span id="cntWaitlist">0</span>)</button>
+            <button class="filter-btn" onclick="setFilter('RATE_LIMITED', this)">Rate Limited (<span id="cntRate">0</span>)</button>
+            <button class="filter-btn" onclick="setFilter('FAILED', this)">Failed (<span id="cntFailed">0</span>)</button>
+            <button class="btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.75rem;" onclick="exportJSON()">Export JSON</button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table id="resultsTable">
+            <thead>
+              <tr>
+                <th style="width: 45px;">#</th>
+                <th style="width: 85px;">Time</th>
+                <th style="width: 120px;">Student ID</th>
+                <th style="width: 70px;">HTTP</th>
+                <th style="width: 110px;">Category</th>
+                <th style="width: 90px;">Latency</th>
+                <th>Message / Error Detail</th>
+              </tr>
+            </thead>
+            <tbody id="resultsBody">
+              <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                  No load test executed yet. Click "Launch Load Test" to begin.
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let currentFilter = 'ALL';
+    let allRecords = [];
+    let lastSummary = null;
+
+    function updateRangeVal(id, val) {
+      document.getElementById(id).innerText = val;
+    }
+
+    function applyPreset(name) {
+      if (name === 'zero_overbooking') {
+        document.getElementById('totalReqs').value = 100;
+        document.getElementById('concurrency').value = 20;
+        document.getElementById('sectionSelect').value = "101";
+        document.getElementById('targetType').value = "gateway";
+      } else if (name === 'rate_limiter') {
+        document.getElementById('totalReqs').value = 30;
+        document.getElementById('concurrency').value = 15;
+        document.getElementById('targetType').value = "gateway";
+      } else if (name === 'quick_smoke') {
+        document.getElementById('totalReqs').value = 10;
+        document.getElementById('concurrency').value = 5;
+      } else if (name === 'heavy_stress') {
+        document.getElementById('totalReqs').value = 200;
+        document.getElementById('concurrency').value = 50;
+        document.getElementById('sectionSelect').value = "101";
+      }
+      updateRangeVal('totalReqsVal', document.getElementById('totalReqs').value);
+      updateRangeVal('concurrencyVal', document.getElementById('concurrency').value);
+    }
+
+    async function pingServices() {
+      try {
+        const res = await fetch('/api/services-status');
+        const data = await res.json();
+        for (const [key, info] of Object.entries(data)) {
+          const dot = document.getElementById(`dot-${key}`);
+          if (dot) {
+            dot.className = info.online ? 'dot online' : 'dot offline';
+            dot.title = info.online ? `${info.status} (${info.latency_ms}ms)` : 'Offline';
+          }
+        }
+      } catch (err) {
+        console.warn('Ping failed', err);
+      }
+    }
+
+    async function resetDatabases() {
+      if (!confirm('This will reset enrollment, catalog, and student databases to initial seeds. Proceed?')) return;
+      try {
+        const res = await fetch('/api/reset', { method: 'POST' });
+        const data = await res.json();
+        alert(data.message || 'Databases reset successfully!');
+        pingServices();
+      } catch (err) {
+        alert('Reset failed: ' + err);
+      }
+    }
+
+    function setFilter(filter, btn) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      renderTable();
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('resultsBody');
+      const filtered = allRecords.filter(r => {
+        if (currentFilter === 'ALL') return true;
+        if (currentFilter === 'SUCCESS') return r.category === 'SUCCESS';
+        if (currentFilter === 'WAITLISTED') return r.category === 'WAITLISTED';
+        if (currentFilter === 'RATE_LIMITED') return r.category === 'RATE_LIMITED';
+        if (currentFilter === 'FAILED') return r.category === 'REJECTED' || r.category === 'ERROR';
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--text-muted); padding:1rem;">No records match filter "${currentFilter}".</td></tr>`;
+        return;
+      }
+
+      // Render top 200 items to keep DOM performant
+      tbody.innerHTML = filtered.slice(0, 200).map(r => `
+        <tr>
+          <td>${r.index}</td>
+          <td style="color:var(--text-muted);">${r.timestamp}</td>
+          <td><strong>${r.student_id}</strong></td>
+          <td>${r.status_code}</td>
+          <td><span class="badge badge-${r.category}">${r.category}</span></td>
+          <td>${r.latency_ms} ms</td>
+          <td>${escapeHtml(r.message)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function escapeHtml(str) {
+      return (str || '').replace(/[&<>'"]/g, tag => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+      }[tag] || tag));
+    }
+
+    async function runLoadTest() {
+      const runBtn = document.getElementById('runBtn');
+      const runBtnText = document.getElementById('runBtnText');
+      runBtn.disabled = true;
+      runBtnText.innerHTML = '<span class="spinner"></span> Running Bench...';
+
+      // Reset state
+      allRecords = [];
+      document.getElementById('resultsBody').innerHTML = '';
+      const totalTarget = parseInt(document.getElementById('totalReqs').value);
+      const concurrency = parseInt(document.getElementById('concurrency').value);
+      const sectionId = parseInt(document.getElementById('sectionSelect').value);
+      const targetType = document.getElementById('targetType').value;
+      const autoProv = document.getElementById('autoProvision').checked;
+
+      document.getElementById('cardTotal').innerText = totalTarget;
+      document.getElementById('cardCompleted').innerText = '0 completed';
+      document.getElementById('cardSuccess').innerText = '0';
+      document.getElementById('cardWaitlist').innerText = '0';
+      document.getElementById('cardRate').innerText = '0';
+      document.getElementById('cardFailed').innerText = '0';
+
+      const payload = {
+        section_id: sectionId,
+        total_requests: totalTarget,
+        concurrency: concurrency,
+        target_type: targetType,
+        auto_provision_students: autoProv
+      };
+
+      try {
+        const response = await fetch('/api/run', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+          throw new Error('Server returned HTTP ' + response.status);
+        }
+
+        const summary = await response.json();
+        lastSummary = summary;
+        applySummary(summary);
+      } catch (err) {
+        alert('Load test failed: ' + err.message);
+      } finally {
+        runBtn.disabled = false;
+        runBtnText.innerText = 'Launch Load Test';
+      }
+    }
+
+    function applySummary(s) {
+      allRecords = s.results;
+
+      // Cards
+      document.getElementById('cardTotal').innerText = s.total_requests;
+      document.getElementById('cardCompleted').innerText = `${s.completed_requests} completed`;
+      document.getElementById('cardSuccess').innerText = s.succeeded_count;
+      document.getElementById('cardWaitlist').innerText = s.waitlisted_count;
+      document.getElementById('cardRate').innerText = s.rate_limited_count;
+      document.getElementById('cardFailed').innerText = s.total_failed_count;
+
+      const total = Math.max(1, s.completed_requests);
+      document.getElementById('cardSuccessPct').innerText = `${((s.succeeded_count / total) * 100).toFixed(1)}% of total`;
+      document.getElementById('cardWaitlistPct').innerText = `${((s.waitlisted_count / total) * 100).toFixed(1)}% of total`;
+      document.getElementById('cardFailedDetail').innerText = `${s.rejected_count} rejects • ${s.error_count} errors`;
+
+      // Filter counters
+      document.getElementById('cntAll').innerText = s.completed_requests;
+      document.getElementById('cntSuccess').innerText = s.succeeded_count;
+      document.getElementById('cntWaitlist').innerText = s.waitlisted_count;
+      document.getElementById('cntRate').innerText = s.rate_limited_count;
+      document.getElementById('cntFailed').innerText = s.total_failed_count;
+
+      // Progress and Ratios
+      document.getElementById('progressBar').style.width = '100%';
+      document.getElementById('progressPct').innerText = '100%';
+      document.getElementById('progressText').innerText = `Finished in ${s.duration_seconds}s`;
+
+      document.getElementById('segSuccess').style.width = `${(s.succeeded_count / total) * 100}%`;
+      document.getElementById('segWaitlist').style.width = `${(s.waitlisted_count / total) * 100}%`;
+      document.getElementById('segRate').style.width = `${(s.rate_limited_count / total) * 100}%`;
+      document.getElementById('segFailed').style.width = `${(s.total_failed_count / total) * 100}%`;
+
+      // Invariant Banner
+      const banner = document.getElementById('invariantBanner');
+      const bannerTitle = document.getElementById('invariantTitle');
+      const bannerDesc = document.getElementById('invariantDesc');
+      const telemetry = document.getElementById('seatTelemetry');
+
+      banner.classList.remove('pass', 'violation');
+      if (s.zero_overbooking_passed === true) {
+        banner.classList.add('pass');
+        bannerTitle.innerHTML = '<span>🛡️ Academic Invariant: ZERO OVERBOOKING VERIFIED ✅</span>';
+        bannerDesc.innerText = s.invariant_detail || 'Capacity strictly preserved.';
+      } else if (s.zero_overbooking_passed === false) {
+        banner.classList.add('violation');
+        bannerTitle.innerHTML = '<span>⚠️ Academic Invariant: OVERBOOKING VIOLATION ❌</span>';
+        bannerDesc.innerText = s.invariant_detail || 'Capacity exceeded!';
+      } else {
+        bannerTitle.innerHTML = '<span>🛡️ Academic Invariant: Check Completed</span>';
+        bannerDesc.innerText = s.invariant_detail || 'Catalog telemetry unavailable.';
+      }
+
+      telemetry.innerText = `Cap: ${s.section_capacity ?? '?'} | Final Enrolled: ${s.final_enrolled ?? '?'}`;
+
+      // Perf Strip
+      document.getElementById('perfRPS').innerText = `${s.requests_per_second} req/s`;
+      document.getElementById('perfDuration').innerText = `${s.duration_seconds} s`;
+      document.getElementById('perfMin').innerText = `${s.latency_min_ms} ms`;
+      document.getElementById('perfAvg').innerText = `${s.latency_avg_ms} ms`;
+      document.getElementById('perfP50').innerText = `${s.latency_p50_ms} ms`;
+      document.getElementById('perfP95').innerText = `${s.latency_p95_ms} ms`;
+      document.getElementById('perfMax').innerText = `${s.latency_max_ms} ms`;
+
+      renderTable();
+    }
+
+    function exportJSON() {
+      if (!lastSummary) {
+        alert('No test results to export.');
+        return;
+      }
+      const blob = new Blob([JSON.stringify(lastSummary, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `load_test_summary_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // Ping services on page load
+    window.addEventListener('DOMContentLoaded', () => {
+      pingServices();
+    });
+  </script>
+</body>
+</html>
