@@ -5,6 +5,7 @@ Pydantic v2 metrics, and Zero-Overbooking invariant verification.
 """
 import asyncio
 import logging
+import os
 import statistics
 import time
 from collections.abc import AsyncGenerator, Callable
@@ -22,9 +23,15 @@ logger = logging.getLogger(__name__)
 class LoadTestConfig(BaseModel):
     """Configuration options for a load test run."""
 
-    target_url: str = Field(default="http://localhost:8000")
-    catalog_url: str = Field(default="http://localhost:8002")
-    student_url: str = Field(default="http://localhost:8001")
+    target_url: str = Field(
+        default_factory=lambda: os.getenv("GATEWAY_URL", "http://localhost:8000")
+    )
+    catalog_url: str = Field(
+        default_factory=lambda: os.getenv("CATALOG_SERVICE_URL", "http://localhost:8002")
+    )
+    student_url: str = Field(
+        default_factory=lambda: os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001")
+    )
     target_type: str = Field(
         default="gateway",
         description="'gateway' (Bearer JWT via :8000) or 'direct' (X-Student-Id via :8003)",

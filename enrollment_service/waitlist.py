@@ -40,6 +40,7 @@ async def has_waitlist(session: AsyncSession, section_id: int) -> bool:
         select(Enrollment.id)
         .where(Enrollment.section_id == section_id, Enrollment.status == _WAITLISTED)
         .limit(1)
+        .with_for_update()
     )
     return result.first() is not None
 
@@ -51,6 +52,7 @@ async def head(session: AsyncSession, section_id: int) -> Enrollment | None:
         .where(Enrollment.section_id == section_id, Enrollment.status == _WAITLISTED)
         .order_by(Enrollment.waitlisted_at, Enrollment.id)
         .limit(1)
+        .with_for_update()
     )
     return result.scalar_one_or_none()
 

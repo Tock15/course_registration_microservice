@@ -97,6 +97,7 @@ async def apply_event(
         await session.execute(
             select(Enrollment.status, Enrollment.student_id, Enrollment.section_id)
             .where(Enrollment.id == enrollment_id)
+            .with_for_update()
         )
     ).one_or_none()
     if found is None:
@@ -158,7 +159,7 @@ async def find_droppable(
             Enrollment.student_id == student_id,
             Enrollment.section_id == section_id,
             Enrollment.status.in_(sources_for(LifecycleEvent.DROP)),
-        )
+        ).with_for_update()
     )
     return result.scalar_one_or_none()
 
@@ -192,7 +193,7 @@ async def clear_seat_key(session: AsyncSession, enrollment_id: int, seat_key: st
                 Enrollment.id == enrollment_id,
                 Enrollment.seat_key == seat_key,
                 Enrollment.status.in_(TERMINAL_STATUSES),
-            )
+            ).with_for_update()
         )
     ).one_or_none()
     if found is None:

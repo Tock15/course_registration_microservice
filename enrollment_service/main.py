@@ -28,6 +28,7 @@ from enrollment_service.orchestrator import EnrollmentOrchestrator
 from enrollment_service.reconciler import Reconciler
 from enrollment_service.schemas import EnrollmentResult, MyEnrollmentsResponse
 from enrollment_service.seat_allocator import DuplicateEnrollmentError
+from enrollment_service.seed import reset_enrollment_data
 from enrollment_service.waitlist import NotEnrolledError
 
 
@@ -150,6 +151,14 @@ async def root():
         "version": "0.1.0",
         "docs_url": "/docs",
     }
+
+
+@app.post("/reset", tags=["Admin"])
+async def reset_enrollments():
+    """Reset all enrollments and audit logs to clean initial state."""
+    from enrollment_service.database import engine
+    await reset_enrollment_data(engine)
+    return {"ok": True, "details": "Recreated tables: enrollments, audit_log (clean)."}
 
 
 _ENROLL_STATUS_CODES = {

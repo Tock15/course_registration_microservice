@@ -30,6 +30,7 @@ from student_service.schemas import (
     StudentCreateRequest,
     StudentProfileDetailResponse,
 )
+from student_service.seed import seed_students
 
 
 @asynccontextmanager
@@ -69,6 +70,13 @@ async def root():
         "version": "0.1.0",
         "docs_url": "/docs",
     }
+
+
+@app.post("/reset", tags=["Admin"])
+async def reset_students(session: AsyncSession = Depends(get_db)):
+    """Reset and reseed student profiles to initial baseline state."""
+    stats = await seed_students(session)
+    return {"ok": True, "details": stats}
 
 
 # ---------------------------------------------------------

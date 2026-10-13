@@ -32,6 +32,7 @@ from catalog_service.schemas import (
     SeatReserveResponse,
     SectionCreateRequest,
 )
+from catalog_service.seed import seed_catalog_data
 from common.schemas import (
     CourseDTO,
     PrereqValidationRequest,
@@ -80,6 +81,13 @@ async def root():
         "version": "0.1.0",
         "docs_url": "/docs",
     }
+
+
+@app.post("/reset", tags=["Admin"])
+async def reset_catalog(session: AsyncSession = Depends(get_db)):
+    """Reset and reseed course catalog data (courses, prerequisites, sections)."""
+    stats = await seed_catalog_data(session)
+    return {"ok": True, "details": stats}
 
 
 # ---------------------------------------------------------

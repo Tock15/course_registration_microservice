@@ -17,7 +17,7 @@ async def reset_enrollment_data(bind: AsyncEngine = engine) -> None:
 async def main() -> None:
     """CLI runner for database reset."""
     print("=" * 60)
-    print("  Resetting Enrollment Database (enrollment.db)...")
+    print("  Resetting Enrollment Database...")
     print("=" * 60)
 
     await reset_enrollment_data()

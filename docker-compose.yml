@@ -1,0 +1,153 @@
+services:
+  # ============================================================================
+  # Default Service (No Profile) - Local Host Development Database
+  # Run standalone with: docker compose up -d
+  # ============================================================================
+  enrollment-postgres:
+    image: postgres:16-alpine
+    container_name: enrollment-postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: enrollment_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d enrollment_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
+  # ============================================================================
+  # Profile Services (Profile: "app") - Full Multi-Service Stack
+  # Run entire stack with: docker compose --profile app up --build
+  # ============================================================================
+  student-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_DIR: student_service
+        PORT: 8001
+    container_name: student-service
+    restart: unless-stopped
+    ports:
+      - "8001:8001"
+    environment:
+      PORT: "8001"
+
+  catalog-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_DIR: catalog_service
+        PORT: 8002
+    container_name: catalog-service
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      STUDENT_SERVICE_URL: http://student-service:8001
+      PORT: "8002"
+    depends_on:
+      student-service:
+        condition: service_started
+
+  enrollment-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_DIR: enrollment_service
+        PORT: 8003
+    container_name: enrollment-service
+    restart: unless-stopped
+    ports:
+      - "8003:8003"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@enrollment-postgres:5432/enrollment_db
+      STUDENT_SERVICE_URL: http://student-service:8001
+      CATALOG_SERVICE_URL: http://catalog-service:8002
+      NOTIFICATION_SERVICE_URL: http://notification-service:8004
+      PORT: "8003"
+    depends_on:
+      enrollment-postgres:
+        condition: service_healthy
+      student-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+
+  notification-service:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_DIR: notification_service
+        PORT: 8004
+    container_name: notification-service
+    restart: unless-stopped
+    ports:
+      - "8004:8004"
+    environment:
+      PORT: "8004"
+
+  api-gateway:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_DIR: api_gateway
+        PORT: 8000
+    container_name: api-gateway
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      STUDENT_SERVICE_URL: http://student-service:8001
+      CATALOG_SERVICE_URL: http://catalog-service:8002
+      ENROLLMENT_SERVICE_URL: http://enrollment-service:8003
+      PORT: "8000"
+    depends_on:
+      student-service:
+        condition: service_started
+      catalog-service:
+        condition: service_started
+      enrollment-service:
+        condition: service_started
+
+  load-tester:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        SERVICE_DIR: load_tester
+        PORT: 8080
+    container_name: load-tester
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@enrollment-postgres:5432/enrollment_db
+      GATEWAY_URL: http://api-gateway:8000
+      STUDENT_SERVICE_URL: http://student-service:8001
+      CATALOG_SERVICE_URL: http://catalog-service:8002
+      ENROLLMENT_SERVICE_URL: http://enrollment-service:8003
+      NOTIFICATION_SERVICE_URL: http://notification-service:8004
+      PORT: "8080"
+    depends_on:
+      api-gateway:
+        condition: service_started
+
+volumes:
+  postgres_data:
