@@ -52,11 +52,22 @@ class EnrollmentOrchestrator:
         self._rules = rules or RuleValidationEngine(default_rules())
         self._seats = SeatAllocator(sessions, catalog)
 
+    def reset_cache(self) -> None:
+        """Clear the in-memory seat saturation cache."""
+        self._seats.clear_cache()
+
     async def enroll(self, student_id: str, section_id: int) -> EnrollmentResult:
-        profile, eligibility, section = await asyncio.gather(
-            self._student.get_profile(student_id),
-            self._student.get_eligibility(student_id),
-            self._catalog.get_section(section_id),
+        async def _read_active():
+            async with self._sessions() as session:
+                return await repository.active_enrollments(session, student_id)
+
+        (profile, eligibility, section), active = await asyncio.gather(
+            asyncio.gather(
+                self._student.get_profile(student_id),
+                self._student.get_eligibility(student_id),
+                self._catalog.get_section(section_id),
+            ),
+            run_with_retry(_read_active),
         )
         course, prereqs = await asyncio.gather(
             self._catalog.get_course(section.course_code),
@@ -64,11 +75,6 @@ class EnrollmentOrchestrator:
                 student_id, section.course_code, profile.completed_courses
             ),
         )
-        async def _read_active():
-            async with self._sessions() as session:
-                return await repository.active_enrollments(session, student_id)
-
-        active = await run_with_retry(_read_active)
 
         ctx = EnrollmentContext(
             student=profile,
@@ -152,6 +158,7 @@ class EnrollmentOrchestrator:
             await self._seats.release(
                 outcome.enrollment_id, section_id, outcome.pending_release_key
             )
+            self._seats.mark_section_available(section_id)
 
         self._publisher.publish(
             CourseDroppedEvent(

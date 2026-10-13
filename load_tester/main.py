@@ -4,6 +4,7 @@ FastAPI Web Interface & Dashboard for high-concurrency load testing.
 Port: 8080 (or custom).
 """
 import asyncio
+import logging
 import os
 import time
 from pathlib import Path
@@ -24,6 +25,8 @@ from load_tester.engine import (
 
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 INDEX_HTML_PATH = TEMPLATES_DIR / "index.html"
+
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Load Test Bench Web Interface",
@@ -180,6 +183,13 @@ async def reset_databases() -> ResetResponse:
             details["student"] = f"Seeded {res.get('students_seeded', 0)} students."
     except (SQLAlchemyError, OSError) as exc:
         details["student"] = f"Reset failed: {exc}"
+
+    # 4. Clear in-memory saturation cache on enrollment service
+    try:
+        async with httpx.AsyncClient(timeout=2.0) as client:
+            await client.post("http://localhost:8003/admin/reset-cache")
+    except httpx.HTTPError as exc:
+        logger.debug("Enrollment cache reset ping bypassed: %s", exc)
 
     return ResetResponse(
         ok=True,

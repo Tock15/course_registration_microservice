@@ -133,6 +133,13 @@ async def db_busy_handler(_: Request, exc: DBAPIError):
     )
 
 
+@app.post("/admin/reset-cache", tags=["Admin"])
+async def reset_cache(orchestrator: EnrollmentOrchestrator = Depends(get_orchestrator)):
+    """Reset in-memory seat saturation cache."""
+    orchestrator.reset_cache()
+    return {"ok": True, "message": "Enrollment saturation cache cleared."}
+
+
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Health check endpoint for service monitoring and API Gateway routing."""
