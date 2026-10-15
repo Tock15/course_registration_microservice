@@ -4,6 +4,7 @@ import os
 STUDENT_SERVICE_URL = os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001")
 CATALOG_SERVICE_URL = os.getenv("CATALOG_SERVICE_URL", "http://localhost:8002")
 ENROLLMENT_SERVICE_URL = os.getenv("ENROLLMENT_SERVICE_URL", "http://localhost:8003")
+NOTIFICATION_SERVICE_URL = os.getenv("NOTIFICATION_SERVICE_URL", "http://localhost:8004")
 
 HTTP_TIMEOUT_SECONDS = float(os.getenv("GATEWAY_HTTP_TIMEOUT_SECONDS", "15.0"))
 

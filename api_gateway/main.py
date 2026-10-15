@@ -23,6 +23,7 @@ from api_gateway.config import (
     HTTP_TIMEOUT_SECONDS,
     LOGIN_RATE_LIMIT_CAPACITY,
     LOGIN_RATE_LIMIT_REFILL_PER_SECOND,
+    NOTIFICATION_SERVICE_URL,
     RATE_LIMIT_CAPACITY,
     RATE_LIMIT_REFILL_PER_SECOND,
     STUDENT_SERVICE_URL,
@@ -57,6 +58,9 @@ def wire_gateway(
     app.state.enrollment_upstream = ProtectionProxy(
         HttpUpstream(http, ENROLLMENT_SERVICE_URL, "enrollment_service"), limiter
     )
+    app.state.notification_upstream = ProtectionProxy(
+        HttpUpstream(http, NOTIFICATION_SERVICE_URL, "notification_service"), limiter
+    )
 
 
 @asynccontextmanager
@@ -89,6 +93,10 @@ def get_catalog_upstream(request: Request) -> UpstreamService:
 
 def get_enrollment_upstream(request: Request) -> UpstreamService:
     return request.app.state.enrollment_upstream
+
+
+def get_notification_upstream(request: Request) -> UpstreamService:
+    return request.app.state.notification_upstream
 
 
 @app.exception_handler(RateLimitExceeded)
@@ -233,5 +241,21 @@ async def my_eligibility(
     return await upstream.forward(
         request,
         f"/students/{quote(principal.sub, safe='')}/eligibility",
+        principal.sub,
+    )
+
+
+@app.get(
+    "/api/v1/notifications", tags=["Notifications"], responses=_PROXIED_RESPONSES
+)
+async def my_notifications(
+    request: Request,
+    principal: TokenPayload = Depends(get_current_principal),
+    upstream: UpstreamService = Depends(get_notification_upstream),
+):
+    """Retrieve notifications and alerts for the authenticated student."""
+    return await upstream.forward(
+        request,
+        f"/notifications/{quote(principal.sub, safe='')}",
         principal.sub,
     )
