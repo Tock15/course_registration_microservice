@@ -26,7 +26,7 @@ class EnrollmentConfirmedEvent(BaseEvent):
 
 class WaitlistSlotOfferedEvent(BaseEvent):
     event_type: str = "WAITLIST_SLOT_OFFERED"
-    offer_id: int
+    offer_id: int | None = None
     student_id: str
     section_id: int
     course_code: str
@@ -40,6 +40,14 @@ class CourseDroppedEvent(BaseEvent):
     course_code: str
 
 
+class WaitlistJoinedEvent(BaseEvent):
+    event_type: str = "WAITLIST_JOINED"
+    student_id: str
+    section_id: int
+    course_code: str
+    position: int
+
+
 class NotificationRecord(BaseModel):
     """Stored representation of notifications sent to students."""
     id: int | None = None
@@ -47,6 +55,8 @@ class NotificationRecord(BaseModel):
     event_type: str
     subject: str
     message: str
+    channel: str = "IN_APP"
+    status: str = "DELIVERED"
     created_at: datetime = Field(
         default_factory=lambda: datetime.now(UTC)
     )

@@ -5,19 +5,16 @@ from abc import ABC, abstractmethod
 
 import httpx
 
-from common.events import BaseEvent
+from common.events import BaseEvent, WaitlistJoinedEvent
 
 logger = logging.getLogger(__name__)
 
-
-class WaitlistJoinedEvent(BaseEvent):
-    """Enrollment-local event: the section was full, student placed in queue."""
-
-    event_type: str = "WAITLIST_JOINED"
-    student_id: str
-    section_id: int
-    course_code: str
-    position: int
+__all__ = [
+    "BaseEvent",
+    "EventPublisher",
+    "HttpEventPublisher",
+    "WaitlistJoinedEvent",
+]
 
 
 class EventPublisher(ABC):

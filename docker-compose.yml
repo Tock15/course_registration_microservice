@@ -87,6 +87,8 @@ services:
         condition: service_started
       catalog-service:
         condition: service_started
+      notification-service:
+        condition: service_started
 
   notification-service:
     profiles: ["app"]
@@ -102,6 +104,7 @@ services:
       - "8004"
     environment:
       PORT: "8004"
+      ALLOW_RESET: "true"
 
   api-gateway:
     profiles: ["app"]
@@ -119,6 +122,7 @@ services:
       STUDENT_SERVICE_URL: http://student-service:8001
       CATALOG_SERVICE_URL: http://catalog-service:8002
       ENROLLMENT_SERVICE_URL: http://enrollment-service:8003
+      NOTIFICATION_SERVICE_URL: http://notification-service:8004
       PORT: "8000"
     depends_on:
       student-service:
@@ -126,6 +130,8 @@ services:
       catalog-service:
         condition: service_started
       enrollment-service:
+        condition: service_started
+      notification-service:
         condition: service_started
 
   load-tester:
