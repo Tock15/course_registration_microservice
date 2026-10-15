@@ -8,7 +8,7 @@ services:
     container_name: enrollment-postgres
     restart: unless-stopped
     ports:
-      - "5432:5432"
+      - "127.0.0.1:5432:5432"
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -35,10 +35,11 @@ services:
         PORT: 8001
     container_name: student-service
     restart: unless-stopped
-    ports:
-      - "8001:8001"
+    expose:
+      - "8001"
     environment:
       PORT: "8001"
+      ALLOW_RESET: "true"
 
   catalog-service:
     profiles: ["app"]
@@ -50,11 +51,12 @@ services:
         PORT: 8002
     container_name: catalog-service
     restart: unless-stopped
-    ports:
-      - "8002:8002"
+    expose:
+      - "8002"
     environment:
       STUDENT_SERVICE_URL: http://student-service:8001
       PORT: "8002"
+      ALLOW_RESET: "true"
     depends_on:
       student-service:
         condition: service_started
@@ -69,14 +71,15 @@ services:
         PORT: 8003
     container_name: enrollment-service
     restart: unless-stopped
-    ports:
-      - "8003:8003"
+    expose:
+      - "8003"
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@enrollment-postgres:5432/enrollment_db
       STUDENT_SERVICE_URL: http://student-service:8001
       CATALOG_SERVICE_URL: http://catalog-service:8002
       NOTIFICATION_SERVICE_URL: http://notification-service:8004
       PORT: "8003"
+      ALLOW_RESET: "true"
     depends_on:
       enrollment-postgres:
         condition: service_healthy
@@ -95,8 +98,8 @@ services:
         PORT: 8004
     container_name: notification-service
     restart: unless-stopped
-    ports:
-      - "8004:8004"
+    expose:
+      - "8004"
     environment:
       PORT: "8004"
 

@@ -8,6 +8,7 @@ Responsibilities:
   - Credential verification endpoint for API Gateway JWT login
   - Financial hold management and credit tally updates
 """
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, HTTPException, Query, status
@@ -19,7 +20,7 @@ from common.schemas import (
     StudentDTO,
     StudentEligibilityResponse,
 )
-from student_service.database import get_db, init_db
+from student_service.database import async_session_maker, get_db, init_db
 from student_service.models import Student, hash_password
 from student_service.schemas import (
     CompletedCoursesUpdateRequest,
@@ -37,6 +38,10 @@ from student_service.seed import seed_students
 async def lifespan(app: FastAPI):
     """Application lifespan context manager for startup and shutdown."""
     await init_db()
+    async with async_session_maker() as session:
+        result = await session.execute(select(Student.id).limit(1))
+        if result.scalar_one_or_none() is None:
+            await seed_students(session)
     yield
 
 
@@ -75,6 +80,11 @@ async def root():
 @app.post("/reset", tags=["Admin"])
 async def reset_students(session: AsyncSession = Depends(get_db)):
     """Reset and reseed student profiles to initial baseline state."""
+    if os.getenv("ALLOW_RESET", "false").lower() not in ("true", "1"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Reset endpoint is disabled in this environment.",
+        )
     stats = await seed_students(session)
     return {"ok": True, "details": stats}
 

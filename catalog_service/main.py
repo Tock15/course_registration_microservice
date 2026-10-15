@@ -20,7 +20,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from catalog_service.database import get_db, init_db
+from catalog_service.database import async_session_maker, get_db, init_db
 from catalog_service.models import Course, Prerequisite, SeatReservation, Section
 from catalog_service.prereq_dag import build_dag_from_db
 from catalog_service.schemas import (
@@ -48,6 +48,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan context manager for startup and shutdown."""
     # Ensure database schema is initialized on startup
     await init_db()
+    async with async_session_maker() as session:
+        result = await session.execute(select(Course.id).limit(1))
+        if result.scalar_one_or_none() is None:
+            await seed_catalog_data(session)
     yield
 
 
@@ -86,6 +90,11 @@ async def root():
 @app.post("/reset", tags=["Admin"])
 async def reset_catalog(session: AsyncSession = Depends(get_db)):
     """Reset and reseed course catalog data (courses, prerequisites, sections)."""
+    if os.getenv("ALLOW_RESET", "false").lower() not in ("true", "1"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Reset endpoint is disabled in this environment.",
+        )
     stats = await seed_catalog_data(session)
     return {"ok": True, "details": stats}
 

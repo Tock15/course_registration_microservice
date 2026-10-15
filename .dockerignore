@@ -5,7 +5,9 @@ __pycache__
 .ruff_cache
 .git
 .gitignore
+*.db
 *.db-wal
 *.db-shm
 *.db-journal
-enrollment.db
+*.sqlite
+*.sqlite3
