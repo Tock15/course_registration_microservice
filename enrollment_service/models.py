@@ -31,6 +31,7 @@ class Enrollment(Base):
             "section_id",
             unique=True,
             sqlite_where=text(f"status IN ({_ACTIVE_STATUS_SQL})"),
+            postgresql_where=text(f"status IN ({_ACTIVE_STATUS_SQL})"),
         ),
         Index(
             "ix_enrollments_waitlist_order",

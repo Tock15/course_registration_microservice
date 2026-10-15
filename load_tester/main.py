@@ -49,7 +49,9 @@ class ResetResponse(BaseModel):
 class ProvisionRequest(BaseModel):
     count: int = Field(default=100, ge=1, le=500)
     prefix: str = Field(default="STU_LOAD_")
-    student_url: str = Field(default="http://localhost:8001")
+    student_url: str = Field(
+        default_factory=lambda: os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001")
+    )
 
 
 @app.get("/", response_class=HTMLResponse, tags=["UI"])
@@ -144,42 +146,74 @@ async def provision_students(payload: ProvisionRequest) -> dict[str, int]:
 async def reset_databases() -> ResetResponse:
     """Reset databases (Catalog, Enrollment, Student) to seed baseline states."""
     details: dict[str, str] = {}
+    enrollment_url = os.getenv("ENROLLMENT_SERVICE_URL", "http://localhost:8003").rstrip("/")
+    catalog_url = os.getenv("CATALOG_SERVICE_URL", "http://localhost:8002").rstrip("/")
+    student_url = os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001").rstrip("/")
 
-    # 1. Reset enrollment.db
-    try:
-        from enrollment_service.database import engine as enroll_engine
-        from enrollment_service.seed import reset_enrollment_data
+    async with httpx.AsyncClient(timeout=10.0) as client:
+        # 1. Reset Enrollment Service
+        try:
+            res = await client.post(f"{enrollment_url}/reset")
+            if res.status_code == 200:
+                body = res.json()
+                details["enrollment"] = str(body.get("details", "Reset succeeded via HTTP."))
+            else:
+                details["enrollment"] = f"HTTP {res.status_code}: {res.text}"
+        except (httpx.HTTPError, OSError):
+            try:
+                from enrollment_service.database import engine as enroll_engine
+                from enrollment_service.seed import reset_enrollment_data
 
-        await reset_enrollment_data(enroll_engine)
-        details["enrollment"] = "Recreated tables: enrollments, audit_log (clean)."
-    except (SQLAlchemyError, OSError) as exc:
-        details["enrollment"] = f"Reset failed: {exc}"
+                await reset_enrollment_data(enroll_engine)
+                details["enrollment"] = "Recreated tables: enrollments, audit_log (clean via direct call)."
+            except (SQLAlchemyError, OSError) as exc:
+                details["enrollment"] = f"Reset failed: {exc}"
 
-    # 2. Reset catalog.db
-    try:
-        from catalog_service.database import async_session_maker as catalog_sessions
-        from catalog_service.database import init_db as init_catalog_db
-        from catalog_service.seed import seed_catalog_data
+        # 2. Reset Catalog Service
+        try:
+            res = await client.post(f"{catalog_url}/reset")
+            if res.status_code == 200:
+                body = res.json()
+                details["catalog"] = f"Catalog reseeded via HTTP: {body.get('details', {})}"
+            else:
+                details["catalog"] = f"HTTP {res.status_code}: {res.text}"
+        except (httpx.HTTPError, OSError):
+            try:
+                from catalog_service.database import (
+                    async_session_maker as catalog_sessions,
+                )
+                from catalog_service.database import init_db as init_catalog_db
+                from catalog_service.seed import seed_catalog_data
 
-        await init_catalog_db()
-        async with catalog_sessions() as session:
-            res = await seed_catalog_data(session)
-            details["catalog"] = f"Seeded {res.get('sections_seeded', 0)} sections."
-    except (SQLAlchemyError, OSError) as exc:
-        details["catalog"] = f"Reset failed: {exc}"
+                await init_catalog_db()
+                async with catalog_sessions() as session:
+                    res_data = await seed_catalog_data(session)
+                    details["catalog"] = f"Seeded {res_data.get('sections', res_data.get('sections_seeded', 0))} sections (direct call)."
+            except (SQLAlchemyError, OSError) as exc:
+                details["catalog"] = f"Reset failed: {exc}"
 
-    # 3. Reset student.db
-    try:
-        from student_service.database import async_session_maker as student_sessions
-        from student_service.database import init_db as init_student_db
-        from student_service.seed import seed_students
+        # 3. Reset Student Service
+        try:
+            res = await client.post(f"{student_url}/reset")
+            if res.status_code == 200:
+                body = res.json()
+                details["student"] = f"Students reseeded via HTTP: {body.get('details', {})}"
+            else:
+                details["student"] = f"HTTP {res.status_code}: {res.text}"
+        except (httpx.HTTPError, OSError):
+            try:
+                from student_service.database import (
+                    async_session_maker as student_sessions,
+                )
+                from student_service.database import init_db as init_student_db
+                from student_service.seed import seed_students
 
-        await init_student_db()
-        async with student_sessions() as session:
-            res = await seed_students(session)
-            details["student"] = f"Seeded {res.get('students_seeded', 0)} students."
-    except (SQLAlchemyError, OSError) as exc:
-        details["student"] = f"Reset failed: {exc}"
+                await init_student_db()
+                async with student_sessions() as session:
+                    res_data = await seed_students(session)
+                    details["student"] = f"Seeded {res_data.get('students_seeded', 0)} students (direct call)."
+            except (SQLAlchemyError, OSError) as exc:
+                details["student"] = f"Reset failed: {exc}"
 
     return ResetResponse(
         ok=True,

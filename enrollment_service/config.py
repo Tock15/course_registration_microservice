@@ -1,24 +1,60 @@
 """Environment-driven settings for the Enrollment Service."""
 import os
-from pathlib import Path
 
-DEFAULT_DB_FILE = Path(__file__).resolve().parent.parent / "enrollment.db"
-DATABASE_URL = os.getenv(
-    "ENROLLMENT_DATABASE_URL",
-    f"sqlite+aiosqlite:///{DEFAULT_DB_FILE.as_posix()}",
-)
+from pydantic import BaseModel, Field
 
-STUDENT_SERVICE_URL = os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001")
-CATALOG_SERVICE_URL = os.getenv("CATALOG_SERVICE_URL", "http://localhost:8002")
-NOTIFICATION_SERVICE_URL = os.getenv(
-    "NOTIFICATION_SERVICE_URL", "http://localhost:8004"
-)
 
-HTTP_TIMEOUT_SECONDS = float(os.getenv("ENROLLMENT_HTTP_TIMEOUT_SECONDS", "10.0"))
+class Settings(BaseModel):
+    """Configuration settings for Enrollment Service including PostgreSQL connection pooling."""
 
-RECONCILE_INTERVAL_SECONDS = float(
-    os.getenv("ENROLLMENT_RECONCILE_INTERVAL_SECONDS", "15")
-)
-STAGED_STALE_SECONDS = float(os.getenv("ENROLLMENT_STAGED_STALE_SECONDS", "60"))
+    database_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "DATABASE_URL",
+            os.getenv(
+                "ENROLLMENT_DATABASE_URL",
+                "postgresql+asyncpg://postgres:postgres@localhost:5432/enrollment_db",
+            ),
+        )
+    )
+    pool_size: int = Field(
+        default_factory=lambda: int(os.getenv("ENROLLMENT_POOL_SIZE", "20"))
+    )
+    max_overflow: int = Field(
+        default_factory=lambda: int(os.getenv("ENROLLMENT_MAX_OVERFLOW", "10"))
+    )
 
-SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("ENROLLMENT_SQLITE_BUSY_TIMEOUT_MS", "15000"))
+    student_service_url: str = Field(
+        default_factory=lambda: os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001")
+    )
+    catalog_service_url: str = Field(
+        default_factory=lambda: os.getenv("CATALOG_SERVICE_URL", "http://localhost:8002")
+    )
+    notification_service_url: str = Field(
+        default_factory=lambda: os.getenv(
+            "NOTIFICATION_SERVICE_URL", "http://localhost:8004"
+        )
+    )
+
+    http_timeout_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("ENROLLMENT_HTTP_TIMEOUT_SECONDS", "10.0"))
+    )
+    reconcile_interval_seconds: float = Field(
+        default_factory=lambda: float(
+            os.getenv("ENROLLMENT_RECONCILE_INTERVAL_SECONDS", "15")
+        )
+    )
+    staged_stale_seconds: float = Field(
+        default_factory=lambda: float(os.getenv("ENROLLMENT_STAGED_STALE_SECONDS", "60"))
+    )
+
+
+settings = Settings()
+
+# Backward-compatible module-level constants
+DATABASE_URL = settings.database_url
+STUDENT_SERVICE_URL = settings.student_service_url
+CATALOG_SERVICE_URL = settings.catalog_service_url
+NOTIFICATION_SERVICE_URL = settings.notification_service_url
+HTTP_TIMEOUT_SECONDS = settings.http_timeout_seconds
+RECONCILE_INTERVAL_SECONDS = settings.reconcile_interval_seconds
+STAGED_STALE_SECONDS = settings.staged_stale_seconds
