@@ -149,6 +149,7 @@ async def reset_databases() -> ResetResponse:
     enrollment_url = os.getenv("ENROLLMENT_SERVICE_URL", "http://localhost:8003").rstrip("/")
     catalog_url = os.getenv("CATALOG_SERVICE_URL", "http://localhost:8002").rstrip("/")
     student_url = os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001").rstrip("/")
+    notification_url = os.getenv("NOTIFICATION_SERVICE_URL", "http://localhost:8004").rstrip("/")
 
     async with httpx.AsyncClient(timeout=10.0) as client:
         # 1. Reset Enrollment Service
@@ -214,6 +215,29 @@ async def reset_databases() -> ResetResponse:
                     details["student"] = f"Seeded {res_data.get('students_seeded', 0)} students (direct call)."
             except (SQLAlchemyError, OSError) as exc:
                 details["student"] = f"Reset failed: {exc}"
+
+        # 4. Reset Notification Service
+        try:
+            res = await client.post(f"{notification_url}/reset")
+            if res.status_code == 200:
+                body = res.json()
+                details["notification"] = f"Notifications cleared via HTTP: {body.get('details', {})}"
+            else:
+                details["notification"] = f"HTTP {res.status_code}: {res.text}"
+        except (httpx.HTTPError, OSError):
+            try:
+                from notification_service.database import (
+                    async_session_maker as notif_sessions,
+                )
+                from notification_service.database import init_db as init_notif_db
+                from notification_service.seed import reset_notification_data
+
+                await init_notif_db()
+                async with notif_sessions() as session:
+                    res_data = await reset_notification_data(session)
+                    details["notification"] = f"Cleared {res_data.get('notifications_cleared', 0)} notifications (direct call)."
+            except (SQLAlchemyError, OSError) as exc:
+                details["notification"] = f"Reset failed: {exc}"
 
     return ResetResponse(
         ok=True,

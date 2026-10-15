@@ -7,6 +7,7 @@ Responsibilities:
   - Notification dispatch & audit store: models.py, database.py
   - Endpoints: POST /events, GET /notifications/{student_id}, POST /reset
 """
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
@@ -76,6 +77,11 @@ async def reset_notifications(
     session: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
     """Reset the notifications database to a clean, empty state."""
+    if os.getenv("ALLOW_RESET", "false").lower() not in ("true", "1"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Database reset is disabled in production.",
+        )
     details = await reset_notification_data(session=session)
     return {"ok": True, "details": details}
 

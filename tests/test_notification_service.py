@@ -299,7 +299,8 @@ async def test_notifications_isolated_between_students(notif_client: AsyncClient
     assert res_b.json()[0]["recipient_id"] == "STU_B"
 
 
-async def test_reset_notifications_endpoint(notif_client: AsyncClient):
+async def test_reset_notifications_endpoint(notif_client: AsyncClient, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("ALLOW_RESET", "true")
     await notif_client.post(
         "/events",
         json={"event_id": "e1", "event_type": "ENROLLMENT_CONFIRMED", "student_id": "STU_RESET", "course_code": "CS101", "section_id": 1},
