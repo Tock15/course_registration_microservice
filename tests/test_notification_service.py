@@ -171,6 +171,15 @@ async def test_waitlist_slot_offered_observer(notif_db):
     assert "claim your seat" in log.message
 
 
+async def test_observer_rejects_missing_required_fields(notif_db):
+    observer = EnrollmentConfirmedObserver()
+    # Missing required course_code and section_id
+    success = await observer.handle(
+        {"event_type": "ENROLLMENT_CONFIRMED", "student_id": "STU_100"}, notif_db
+    )
+    assert success is False
+
+
 async def test_dispatcher_handles_unknown_events_gracefully(notif_db):
     dispatcher = create_default_dispatcher(notif_db)
     count = await dispatcher.dispatch({"event_type": "UNKNOWN_CUSTOM_TOPIC"})
@@ -249,6 +258,25 @@ async def test_post_event_accepted_and_stores_notification(notif_client: AsyncCl
 async def test_post_event_missing_type_returns_400(notif_client: AsyncClient):
     res = await notif_client.post("/events", json={"student_id": "STU_001"})
     assert res.status_code == 400
+
+
+async def test_post_event_unknown_type_returns_422(notif_client: AsyncClient):
+    res = await notif_client.post(
+        "/events",
+        json={"event_type": "UNKNOWN_CUSTOM_TOPIC", "student_id": "STU_001"},
+    )
+    assert res.status_code == 422
+    assert "No observers registered" in res.json()["detail"]
+
+
+async def test_post_event_malformed_payload_returns_422(notif_client: AsyncClient):
+    # Missing required course_code and section_id for ENROLLMENT_CONFIRMED
+    res = await notif_client.post(
+        "/events",
+        json={"event_type": "ENROLLMENT_CONFIRMED", "student_id": "STU_001"},
+    )
+    assert res.status_code == 422
+    assert "could not be processed" in res.json()["detail"]
 
 
 async def test_empty_notification_zero_state(notif_client: AsyncClient):

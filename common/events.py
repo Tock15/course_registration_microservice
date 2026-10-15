@@ -26,7 +26,7 @@ class EnrollmentConfirmedEvent(BaseEvent):
 
 class WaitlistSlotOfferedEvent(BaseEvent):
     event_type: str = "WAITLIST_SLOT_OFFERED"
-    offer_id: int
+    offer_id: int | None = None
     student_id: str
     section_id: int
     course_code: str

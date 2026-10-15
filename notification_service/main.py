@@ -127,7 +127,19 @@ async def ingest_event(
             detail="Payload must include a non-empty 'event_type' string.",
         )
 
+    if not dispatcher.has_topic(event_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"No observers registered for event topic '{event_type}'.",
+        )
+
     handled_count = await dispatcher.dispatch(payload)
+    if handled_count == 0:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Event '{event_type}' could not be processed by any registered observer.",
+        )
+
     return EventIngestResponse(
         accepted=True,
         event_id=payload.get("event_id"),
