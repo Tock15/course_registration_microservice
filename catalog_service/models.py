@@ -140,8 +140,26 @@ class Section(Base):
         else:
             self.schedule_days_raw = str(days)
 
+    @property
+    def course_credits(self) -> int | None:
+        """Expose course credits for SectionDTO."""
+        if "course" in self.__dict__ and self.course is not None:
+            return self.course.credits
+        return None
+
+    @property
+    def direct_prereqs(self) -> list[str]:
+        """Expose direct prerequisite course codes for SectionDTO."""
+        if (
+            "course" in self.__dict__
+            and self.course is not None
+            and "prerequisite_records" in self.course.__dict__
+        ):
+            return self.course.prerequisites
+        return []
+
     def to_dict(self) -> dict[str, Any]:
-        return {
+        d = {
             "id": self.id,
             "course_code": self.course_code,
             "section_number": self.section_number,
@@ -153,6 +171,10 @@ class Section(Base):
             "room": self.room,
             "instructor": self.instructor,
         }
+        if self.course_credits is not None:
+            d["course_credits"] = self.course_credits
+            d["direct_prereqs"] = self.direct_prereqs
+        return d
 
 
 class SeatReservation(Base):

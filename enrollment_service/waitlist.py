@@ -40,7 +40,6 @@ async def has_waitlist(session: AsyncSession, section_id: int) -> bool:
         select(Enrollment.id)
         .where(Enrollment.section_id == section_id, Enrollment.status == _WAITLISTED)
         .limit(1)
-        .with_for_update()
     )
     return result.first() is not None
 
@@ -57,6 +56,29 @@ async def head(session: AsyncSession, section_id: int) -> Enrollment | None:
     return result.scalar_one_or_none()
 
 
+async def position_for(
+    session: AsyncSession,
+    section_id: int,
+    waitlisted_at: object,
+    enrollment_id: int,
+) -> int:
+    """1-based queue position when section_id and waitlisted_at are already known."""
+    ahead_or_self = await session.scalar(
+        select(func.count(Enrollment.id)).where(
+            Enrollment.section_id == section_id,
+            Enrollment.status == _WAITLISTED,
+            or_(
+                Enrollment.waitlisted_at < waitlisted_at,
+                and_(
+                    Enrollment.waitlisted_at == waitlisted_at,
+                    Enrollment.id <= enrollment_id,
+                ),
+            ),
+        )
+    )
+    return int(ahead_or_self or 0)
+
+
 async def position(session: AsyncSession, enrollment_id: int) -> int | None:
     """1-based queue position, or None if the row is not WAITLISTED."""
     row = (
@@ -69,20 +91,7 @@ async def position(session: AsyncSession, enrollment_id: int) -> int | None:
     if row is None:
         return None
 
-    ahead_or_self = await session.scalar(
-        select(func.count(Enrollment.id)).where(
-            Enrollment.section_id == row.section_id,
-            Enrollment.status == _WAITLISTED,
-            or_(
-                Enrollment.waitlisted_at < row.waitlisted_at,
-                and_(
-                    Enrollment.waitlisted_at == row.waitlisted_at,
-                    Enrollment.id <= enrollment_id,
-                ),
-            ),
-        )
-    )
-    return int(ahead_or_self or 0)
+    return await position_for(session, row.section_id, row.waitlisted_at, enrollment_id)
 
 
 async def sections_with_waitlist(session: AsyncSession) -> list[int]:

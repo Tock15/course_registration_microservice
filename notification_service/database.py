@@ -31,6 +31,9 @@ def make_engine(
         def _set_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=-64000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
             cursor.execute(f"PRAGMA busy_timeout={busy_timeout}")
             cursor.close()
 

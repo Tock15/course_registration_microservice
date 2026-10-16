@@ -36,9 +36,11 @@ def make_engine(url: str) -> AsyncEngine:
     if "sqlite" in url:
         @event.listens_for(eng.sync_engine, "connect")
         def _on_connect(dbapi_connection, _connection_record) -> None:
-            dbapi_connection.isolation_level = None
             cursor = dbapi_connection.cursor()
             cursor.execute("PRAGMA journal_mode=WAL")
+            cursor.execute("PRAGMA synchronous=NORMAL")
+            cursor.execute("PRAGMA cache_size=-64000")
+            cursor.execute("PRAGMA temp_store=MEMORY")
             cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
             cursor.close()
 

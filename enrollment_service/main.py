@@ -38,7 +38,12 @@ async def lifespan(app: FastAPI):
     """Initialize the schema, shared HTTP client and background reconciler."""
     await init_db()
 
-    http = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
+    limits = httpx.Limits(
+        max_connections=500,
+        max_keepalive_connections=200,
+        keepalive_expiry=30.0,
+    )
+    http = httpx.AsyncClient(limits=limits, timeout=HTTP_TIMEOUT_SECONDS)
     app.state.student_client = StudentClient(http, STUDENT_SERVICE_URL)
     app.state.catalog_client = CatalogClient(http, CATALOG_SERVICE_URL)
     app.state.event_publisher = HttpEventPublisher(http, NOTIFICATION_SERVICE_URL)

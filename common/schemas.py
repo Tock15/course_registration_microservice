@@ -110,6 +110,10 @@ class SectionDTO(BaseModel):
     end_time: str = Field(..., description="HH:MM format, e.g. '10:30'")
     room: str = Field(default="TBA")
     instructor: str = Field(default="TBA")
+    course_credits: int | None = Field(default=None, description="Course credits")
+    direct_prereqs: list[str] = Field(
+        default_factory=list, description="Direct prerequisite course codes"
+    )
 
 
 class PrereqValidationRequest(BaseModel):

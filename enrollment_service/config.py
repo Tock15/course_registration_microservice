@@ -17,10 +17,10 @@ class Settings(BaseModel):
         )
     )
     pool_size: int = Field(
-        default_factory=lambda: int(os.getenv("ENROLLMENT_POOL_SIZE", "20"))
+        default_factory=lambda: int(os.getenv("ENROLLMENT_POOL_SIZE", "30"))
     )
     max_overflow: int = Field(
-        default_factory=lambda: int(os.getenv("ENROLLMENT_MAX_OVERFLOW", "10"))
+        default_factory=lambda: int(os.getenv("ENROLLMENT_MAX_OVERFLOW", "40"))
     )
 
     student_service_url: str = Field(

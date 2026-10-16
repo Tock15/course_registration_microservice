@@ -33,7 +33,7 @@ def make_engine(
         echo=False,
         pool_size=pool_size,
         max_overflow=max_overflow,
-        pool_pre_ping=True,
+        pool_pre_ping=False,
     )
 
 

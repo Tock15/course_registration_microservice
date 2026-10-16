@@ -52,7 +52,10 @@ class SeatAllocator:
                         status=EnrollmentStatus.WAITLISTED,
                         reason="Joined behind the existing waitlist.",
                     )
-                    enrollment_id, arrived_at, queued = row.id, row.created_at, True
+                    pos = await waitlist.position_for(
+                        session, section.id, row.created_at, row.id
+                    )
+                    return Allocation(row.id, EnrollmentStatus.WAITLISTED, pos)
                 else:
                     row = await repository.add_enrollment(
                         session,
@@ -62,17 +65,12 @@ class SeatAllocator:
                         status=EnrollmentStatus.STAGED,
                         seat_key=seat_key,
                     )
-                    enrollment_id, arrived_at, queued = row.id, row.created_at, False
+                    enrollment_id, arrived_at = row.id, row.created_at
         except IntegrityError as exc:
             raise DuplicateEnrollmentError(
                 f"Student '{student_id}' already has an active request "
                 f"for section {section.id}."
             ) from exc
-
-        if queued:
-            return Allocation(
-                enrollment_id, EnrollmentStatus.WAITLISTED, await self._position(enrollment_id)
-            )
 
         try:
             reserved = await self._catalog.reserve_seat(section.id, seat_key)
@@ -86,11 +84,12 @@ class SeatAllocator:
             raise
 
         if reserved:
-            status = await self._finish(enrollment_id, LifecycleEvent.SEAT_RESERVED)
+            status, pos = await self._finish(enrollment_id, LifecycleEvent.SEAT_RESERVED)
         else:
-            status = await self._finish(
+            status, pos = await self._finish(
                 enrollment_id,
                 LifecycleEvent.SECTION_FULL,
+                section_id=section.id,
                 reason="Section full.",
                 seat_key=None,
                 waitlisted_at=arrived_at,
@@ -101,7 +100,7 @@ class SeatAllocator:
                 self._catalog.service_name, "Seat reservation timed out; please retry."
             )
         if status is EnrollmentStatus.WAITLISTED:
-            return Allocation(enrollment_id, status, await self._position(enrollment_id))
+            return Allocation(enrollment_id, status, pos)
         return Allocation(enrollment_id, status)
 
     async def release(self, enrollment_id: int, section_id: int, seat_key: str) -> bool:
@@ -122,12 +121,26 @@ class SeatAllocator:
         return True
 
     async def _finish(
-        self, enrollment_id: int, event: LifecycleEvent, *, reason: str | None = None, **values
-    ) -> EnrollmentStatus | None:
+        self,
+        enrollment_id: int,
+        event: LifecycleEvent,
+        *,
+        section_id: int | None = None,
+        reason: str | None = None,
+        **values,
+    ) -> tuple[EnrollmentStatus | None, int | None]:
         async with self._sessions() as session, session.begin():
-            return await repository.apply_event(
+            status = await repository.apply_event(
                 session, enrollment_id, event, reason=reason, **values
             )
+            pos = None
+            if status == EnrollmentStatus.WAITLISTED:
+                w_at = values.get("waitlisted_at")
+                if section_id is not None and w_at is not None:
+                    pos = await waitlist.position_for(session, section_id, w_at, enrollment_id)
+                else:
+                    pos = await waitlist.position(session, enrollment_id)
+            return status, pos
 
     async def _position(self, enrollment_id: int) -> int | None:
         async with self._sessions() as session, session.begin():
