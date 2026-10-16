@@ -66,7 +66,12 @@ def wire_gateway(
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Own the shared HTTP client used for every downstream call."""
-    http = httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS)
+    limits = httpx.Limits(
+        max_connections=500,
+        max_keepalive_connections=200,
+        keepalive_expiry=30.0,
+    )
+    http = httpx.AsyncClient(limits=limits, timeout=HTTP_TIMEOUT_SECONDS)
     wire_gateway(app, http)
     try:
         yield

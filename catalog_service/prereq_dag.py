@@ -224,6 +224,12 @@ class PrereqDAG:
             message="All prerequisites satisfied.",
         )
 
+    def copy(self) -> "PrereqDAG":
+        """Return a copy of this DAG."""
+        new_dag = PrereqDAG()
+        new_dag.adj = {k: set(v) for k, v in self.adj.items()}
+        return new_dag
+
     def to_dict(self) -> dict[str, Any]:
         """Serialize adjacency graph to dictionary."""
         return {node: sorted(neighbors) for node, neighbors in self.adj.items()}

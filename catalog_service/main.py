@@ -13,16 +13,16 @@ import os
 from contextlib import asynccontextmanager
 
 import httpx
-from fastapi import Depends, FastAPI, HTTPException, Query, status
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from catalog_service.database import async_session_maker, get_db, init_db
 from catalog_service.models import Course, Prerequisite, SeatReservation, Section
-from catalog_service.prereq_dag import build_dag_from_db
+from catalog_service.prereq_dag import PrereqDAG, build_dag_from_db
 from catalog_service.schemas import (
     CapacityUpdateRequest,
     CourseCreateRequest,
@@ -49,9 +49,10 @@ async def lifespan(app: FastAPI):
     # Ensure database schema is initialized on startup
     await init_db()
     async with async_session_maker() as session:
-        result = await session.execute(select(Course.id).limit(1))
+        result = await session.execute(select(Course.code).limit(1))
         if result.scalar_one_or_none() is None:
             await seed_catalog_data(session)
+        app.state.dag = await build_dag_from_db(session)
     yield
 
 
@@ -61,6 +62,15 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+async def get_or_build_dag(app: FastAPI, session: AsyncSession) -> PrereqDAG:
+    """Retrieve in-memory PrereqDAG or lazily initialize from database."""
+    dag: PrereqDAG | None = getattr(app.state, "dag", None)
+    if dag is None:
+        dag = await build_dag_from_db(session)
+        app.state.dag = dag
+    return dag
 
 
 # ---------------------------------------------------------
@@ -87,8 +97,12 @@ async def root():
     }
 
 
+@app.post("/seed", tags=["Admin"])
 @app.post("/reset", tags=["Admin"])
-async def reset_catalog(session: AsyncSession = Depends(get_db)):
+async def reset_catalog(
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+):
     """Reset and reseed course catalog data (courses, prerequisites, sections)."""
     if os.getenv("ALLOW_RESET", "false").lower() not in ("true", "1"):
         raise HTTPException(
@@ -96,6 +110,7 @@ async def reset_catalog(session: AsyncSession = Depends(get_db)):
             detail="Reset endpoint is disabled in this environment.",
         )
     stats = await seed_catalog_data(session)
+    request.app.state.dag = None
     return {"ok": True, "details": stats}
 
 
@@ -161,6 +176,7 @@ async def get_course(code: str, session: AsyncSession = Depends(get_db)):
 )
 async def create_course(
     payload: CourseCreateRequest,
+    request: Request,
     session: AsyncSession = Depends(get_db),
 ):
     """Create a new course offering and configure its prerequisites.
@@ -179,22 +195,24 @@ async def create_course(
             detail=f"Course '{norm_code}' already exists.",
         )
 
-    # 2. Check prerequisites existence & circular dependencies
-    dag = await build_dag_from_db(session)
+    # 2. Check prerequisites existence & circular dependencies using in-memory DAG
+    current_dag = await get_or_build_dag(request.app, session)
+    dag = current_dag.copy()
     dag.add_course(norm_code)
 
     prereq_records: list[Prerequisite] = []
     for req in payload.prerequisites:
         req_norm = req.strip().upper()
         # Verify required course exists
-        req_check = await session.execute(
-            select(Course).where(Course.code == req_norm)
-        )
-        if not req_check.scalar_one_or_none():
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Prerequisite course '{req_norm}' does not exist in catalog.",
+        if req_norm not in dag.adj:
+            req_check = await session.execute(
+                select(Course).where(Course.code == req_norm)
             )
+            if not req_check.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Prerequisite course '{req_norm}' does not exist in catalog.",
+                )
 
         # Check for circular dependency
         if dag.would_create_cycle(norm_code, req_norm):
@@ -226,6 +244,9 @@ async def create_course(
     await session.commit()
     await session.refresh(new_course)
 
+    # Invalidate in-memory DAG cache so next request rebuilds from database
+    request.app.state.dag = None
+
     return CourseDTO.model_validate(new_course)
 
 
@@ -236,6 +257,7 @@ async def create_course(
 
 @app.get("/sections", response_model=list[SectionDTO], tags=["Sections"])
 async def list_sections(
+    request: Request,
     course_code: str | None = Query(None, description="Course code filter"),
     department: str | None = Query(None, description="Department filter"),
     day: str | None = Query(None, description="Schedule day, e.g. MON"),
@@ -246,7 +268,11 @@ async def list_sections(
     session: AsyncSession = Depends(get_db),
 ):
     """List sections offering live capacity telemetry and multi-criteria filtering."""
-    stmt = select(Section).join(Course)
+    stmt = (
+        select(Section)
+        .options(joinedload(Section.course))
+        .join(Course)
+    )
 
     if course_code:
         stmt = stmt.where(Section.course_code == course_code.strip().upper())
@@ -273,13 +299,29 @@ async def list_sections(
             if day_norm in [d.upper() for d in s.schedule_days]
         ]
 
-    return [SectionDTO.model_validate(s) for s in sections]
+    dag: PrereqDAG | None = getattr(request.app.state, "dag", None)
+    dtos: list[SectionDTO] = []
+    for s in sections:
+        dto = SectionDTO.model_validate(s)
+        if dag is not None and not dto.direct_prereqs:
+            dto.direct_prereqs = dag.get_direct_prereqs(s.course_code)
+        dtos.append(dto)
+
+    return dtos
 
 
 @app.get("/sections/{id}", response_model=SectionDTO, tags=["Sections"])
-async def get_section(id: int, session: AsyncSession = Depends(get_db)):
+async def get_section(
+    id: int,
+    request: Request,
+    session: AsyncSession = Depends(get_db),
+):
     """Retrieve section metadata and live capacity telemetry."""
-    stmt = select(Section).where(Section.id == id)
+    stmt = (
+        select(Section)
+        .options(joinedload(Section.course))
+        .where(Section.id == id)
+    )
     result = await session.execute(stmt)
     section = result.scalar_one_or_none()
 
@@ -289,7 +331,11 @@ async def get_section(id: int, session: AsyncSession = Depends(get_db)):
             detail=f"Section {id} not found.",
         )
 
-    return SectionDTO.model_validate(section)
+    dto = SectionDTO.model_validate(section)
+    dag: PrereqDAG | None = getattr(request.app.state, "dag", None)
+    if dag is not None and not dto.direct_prereqs:
+        dto.direct_prereqs = dag.get_direct_prereqs(section.course_code)
+    return dto
 
 
 @app.post(
@@ -428,15 +474,7 @@ async def reserve_seat(
             },
         )
 
-    # 2. Verify section exists
-    section = await session.get(Section, id)
-    if not section:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Section {id} not found.",
-        )
-
-    # 3. Atomic conditional update to allocate seat (Zero Overbooking Invariant)
+    # 2. Atomic conditional update to allocate seat (Zero Overbooking Invariant)
     alloc_stmt = (
         update(Section)
         .where(Section.id == id, Section.enrolled_count < Section.capacity)
@@ -445,6 +483,12 @@ async def reserve_seat(
     result = await session.execute(alloc_stmt)
 
     if result.rowcount == 0:
+        section = await session.get(Section, id)
+        if not section:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Section {id} not found.",
+            )
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={
@@ -564,6 +608,7 @@ async def release_seat(
 )
 async def validate_prerequisites(
     payload: PrereqValidationRequest,
+    request: Request,
     session: AsyncSession = Depends(get_db),
 ):
     """Validate student eligibility against prerequisite DAG.
@@ -573,12 +618,10 @@ async def validate_prerequisites(
       - Fallback: queries student_service to retrieve completed transcript courses.
     """
     norm_code = payload.course_code.strip().upper()
+    dag = await get_or_build_dag(request.app, session)
 
-    # Verify target course exists
-    course_check = await session.execute(
-        select(Course).where(Course.code == norm_code)
-    )
-    if not course_check.scalar_one_or_none():
+    # Verify target course exists directly from in-memory DAG
+    if norm_code not in dag.adj:
         return PrereqValidationResponse(
             is_valid=False,
             missing_prereqs=[],
@@ -601,8 +644,7 @@ async def validate_prerequisites(
             # Student service unavailable; proceed with empty course list
             completed_courses = []
 
-    # Build live DAG and validate
-    dag = await build_dag_from_db(session)
+    # Serve directly from the in-memory DAG
     return dag.validate_student(
         course_code=norm_code,
         completed_courses=completed_courses,

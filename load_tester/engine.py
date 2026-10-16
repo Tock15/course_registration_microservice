@@ -114,8 +114,22 @@ async def provision_student_cohort(
     if prereqs is None:
         prereqs = ["CS101", "CS102", "CS201", "CS202"]
 
+    if not student_ids:
+        return 0
+
+    base_url = student_url.rstrip("/")
+    # Fast check: if the first and last students already exist, skip cohort creation
+    try:
+        first_res = await client.get(f"{base_url}/students/{student_ids[0]}", timeout=3.0)
+        last_res = await client.get(f"{base_url}/students/{student_ids[-1]}", timeout=3.0)
+        if first_res.status_code == 200 and last_res.status_code == 200:
+            logger.info("Student cohort already provisioned; skipping creation.")
+            return len(student_ids)
+    except (httpx.HTTPError, OSError):
+        pass
+
     provisioned = 0
-    url = f"{student_url.rstrip('/')}/students"
+    url = f"{base_url}/students"
 
     async def _provision_one(sid: str) -> None:
         nonlocal provisioned
@@ -140,8 +154,8 @@ async def provision_student_cohort(
         except (httpx.HTTPError, OSError) as exc:
             logger.debug("Student provision skipped for %s: %s", sid, exc)
 
-    # Provision in chunks to avoid overwhelming Student Service
-    batch_size = 20
+    # Increased batch size to 50 for faster provisioning
+    batch_size = 50
     for i in range(0, len(student_ids), batch_size):
         chunk = student_ids[i : i + batch_size]
         await asyncio.gather(*(_provision_one(sid) for sid in chunk))
@@ -158,7 +172,8 @@ async def execute_load_test(
         f"{config.student_prefix}{i:03d}" for i in range(1, config.total_requests + 1)
     ]
 
-    async with httpx.AsyncClient(timeout=config.timeout_seconds) as client:
+    limits = httpx.Limits(max_connections=500, max_keepalive_connections=200)
+    async with httpx.AsyncClient(limits=limits, timeout=config.timeout_seconds) as client:
         # 1. Fetch initial section state from Catalog if reachable
         initial_sec = await fetch_section_info(client, config.catalog_url, config.section_id)
         init_enrolled = initial_sec.get("enrolled_count") if initial_sec else None
