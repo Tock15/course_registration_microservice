@@ -46,4 +46,4 @@ ENV PORT=${PORT}
 EXPOSE ${PORT}
 
 # Default entrypoint: uv run uvicorn ${SERVICE_NAME}.main:app --host 0.0.0.0 --port <PORT>
-ENTRYPOINT ["sh", "-c", "exec uv run uvicorn ${SERVICE_NAME}.main:app --host 0.0.0.0 --port ${PORT} --workers ${WORKERS:-2} --loop uvloop --http httptools"]
+ENTRYPOINT ["sh", "-c", "exec uv run uvicorn ${SERVICE_NAME}.main:app --host 0.0.0.0 --port ${PORT} --workers ${WORKERS:-1} --loop uvloop --http httptools"]

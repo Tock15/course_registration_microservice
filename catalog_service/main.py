@@ -110,7 +110,7 @@ async def reset_catalog(
             detail="Reset endpoint is disabled in this environment.",
         )
     stats = await seed_catalog_data(session)
-    request.app.state.dag = await build_dag_from_db(session)
+    request.app.state.dag = None
     return {"ok": True, "details": stats}
 
 
@@ -244,8 +244,8 @@ async def create_course(
     await session.commit()
     await session.refresh(new_course)
 
-    # Invalidate and update in-memory DAG
-    request.app.state.dag = dag
+    # Invalidate in-memory DAG cache so next request rebuilds from database
+    request.app.state.dag = None
 
     return CourseDTO.model_validate(new_course)
 
