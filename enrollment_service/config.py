@@ -46,6 +46,9 @@ class Settings(BaseModel):
     staged_stale_seconds: float = Field(
         default_factory=lambda: float(os.getenv("ENROLLMENT_STAGED_STALE_SECONDS", "60"))
     )
+    offer_ttl_hours: float = Field(
+        default_factory=lambda: float(os.getenv("ENROLLMENT_OFFER_TTL_HOURS", "24"))
+    )
 
 
 settings = Settings()
@@ -58,3 +61,4 @@ NOTIFICATION_SERVICE_URL = settings.notification_service_url
 HTTP_TIMEOUT_SECONDS = settings.http_timeout_seconds
 RECONCILE_INTERVAL_SECONDS = settings.reconcile_interval_seconds
 STAGED_STALE_SECONDS = settings.staged_stale_seconds
+OFFER_TTL_HOURS = settings.offer_ttl_hours

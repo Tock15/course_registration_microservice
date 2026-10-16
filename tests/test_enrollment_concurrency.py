@@ -64,7 +64,26 @@ async def test_concurrent_drops_and_enrolls_keep_fifo_and_seat_invariant(
     )
 
     status = {r.student_id: r.status for r in await enrollment_env.rows(101)}
-    enrolled = sorted(s for s, st in status.items() if st == "ENROLLED")
-    assert enrolled == sorted(first_wave[5:])
+    holders = sorted(s for s, st in status.items() if st in ("ENROLLED", "OFFERED"))
+    assert holders == sorted(first_wave[5:])
+    assert all(status[s] == "ENROLLED" for s in first_wave[5:10])
+    assert all(status[s] == "OFFERED" for s in first_wave[10:])
     assert all(status[s] == "WAITLISTED" for s in second_wave)
-    assert enrollment_env.upstreams.seats_held(101) == 10 == len(enrolled)
+    assert enrollment_env.upstreams.seats_held(101) == 10 == len(holders)
+
+
+async def test_claim_burst_on_one_offer_enrolls_exactly_once(enrollment_env: EnrollmentTestEnv):
+    await enrollment_env.enroll("STU_001", 105)
+    await enrollment_env.enroll("STU_002", 105)
+    await enrollment_env.drop("STU_001", 105)
+    offer_id = (await enrollment_env.row_of("STU_002", 105)).id
+
+    responses = await asyncio.gather(
+        *(enrollment_env.claim("STU_002", offer_id) for _ in range(10))
+    )
+
+    statuses = sorted(r.json()["status"] for r in responses)
+    assert statuses == ["CLAIMED"] + ["EXPIRED_OR_ALREADY_CLAIMED"] * 9
+    assert await enrollment_env.status_of("STU_002", 105) == "ENROLLED"
+    assert enrollment_env.publisher.types().count("ENROLLMENT_CONFIRMED") == 2
+    assert enrollment_env.upstreams.seats_held(105) == 1

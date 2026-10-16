@@ -2,16 +2,17 @@
 import asyncio
 import json
 from dataclasses import dataclass
+from datetime import timedelta
 
 import httpx
 from httpx import AsyncClient
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from common.events import BaseEvent
 from enrollment_service.clients import CatalogClient
 from enrollment_service.events import EventPublisher
-from enrollment_service.models import Enrollment
+from enrollment_service.models import Enrollment, utcnow
 
 STUDENT_HOST = "student.test"
 CATALOG_HOST = "catalog.test"
@@ -234,10 +235,31 @@ class EnrollmentTestEnv:
             headers={"X-Student-Id": student_id},
         )
 
+    async def claim(self, student_id: str, offer_id: int) -> httpx.Response:
+        return await self.client.post(
+            "/waitlist/claim",
+            json={"offer_id": offer_id},
+            headers={"X-Student-Id": student_id},
+        )
+
     async def mine(self, student_id: str) -> dict:
         res = await self.client.get("/enrollments", headers={"X-Student-Id": student_id})
         assert res.status_code == 200
         return res.json()
+
+    async def my_waitlist(self, student_id: str) -> list[dict]:
+        res = await self.client.get("/waitlist/me", headers={"X-Student-Id": student_id})
+        assert res.status_code == 200
+        return res.json()
+
+    async def backdate_offer(self, enrollment_id: int) -> None:
+        """Move an offer's deadline into the past, as if 24h went by unclaimed."""
+        async with self.sessions() as session, session.begin():
+            await session.execute(
+                update(Enrollment)
+                .where(Enrollment.id == enrollment_id)
+                .values(offer_expires_at=utcnow() - timedelta(minutes=1))
+            )
 
     async def rows(self, section_id: int | None = None) -> list[Enrollment]:
         async with self.sessions() as session, session.begin():
@@ -246,7 +268,11 @@ class EnrollmentTestEnv:
                 stmt = stmt.where(Enrollment.section_id == section_id)
             return list((await session.execute(stmt)).scalars().all())
 
-    async def status_of(self, student_id: str, section_id: int) -> str | None:
+    async def row_of(self, student_id: str, section_id: int) -> Enrollment | None:
         rows = [r for r in await self.rows(section_id) if r.student_id == student_id]
-        return rows[-1].status if rows else None
+        return rows[-1] if rows else None
+
+    async def status_of(self, student_id: str, section_id: int) -> str | None:
+        row = await self.row_of(student_id, section_id)
+        return row.status if row else None
 

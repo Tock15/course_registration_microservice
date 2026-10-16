@@ -69,6 +69,8 @@ async def test_upstream_status_and_body_pass_through(
     ("method", "public_path", "port", "upstream_path"),
     [
         ("GET", "/api/v1/enrollments", ENROLLMENT_PORT, "/enrollments"),
+        ("GET", "/api/v1/enrollments/me", ENROLLMENT_PORT, "/enrollments/me"),
+        ("GET", "/api/v1/waitlist/me", ENROLLMENT_PORT, "/waitlist/me"),
         ("GET", "/api/v1/courses", CATALOG_PORT, "/courses"),
         ("GET", "/api/v1/courses/CS301", CATALOG_PORT, "/courses/CS301"),
         ("GET", "/api/v1/sections", CATALOG_PORT, "/sections"),
@@ -100,6 +102,21 @@ async def test_drop_is_forwarded(gateway_env: GatewayTestEnv):
     sent = gateway_env.downstreams.last
     assert (sent.url.port, sent.url.path) == (ENROLLMENT_PORT, "/drops")
     assert json.loads(sent.content) == {"section_id": 101}
+
+
+async def test_claim_is_forwarded(gateway_env: GatewayTestEnv):
+    await gateway_env.client.post(
+        "/api/v1/waitlist/claim", json={"offer_id": 7}, headers=bearer("STU_001")
+    )
+
+    sent = gateway_env.downstreams.last
+    assert (sent.method, sent.url.port, sent.url.path) == (
+        "POST",
+        ENROLLMENT_PORT,
+        "/waitlist/claim",
+    )
+    assert sent.headers["X-Student-Id"] == "STU_001"
+    assert json.loads(sent.content) == {"offer_id": 7}
 
 
 async def test_query_string_is_forwarded(gateway_env: GatewayTestEnv):

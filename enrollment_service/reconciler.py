@@ -1,4 +1,4 @@
-"""Background reconciler: stale reservations, pending releases, waitlist pump."""
+"""Background reconciler: stale reservations, expired offers, pending releases, waitlist pump."""
 import asyncio
 import logging
 from dataclasses import dataclass
@@ -7,7 +7,6 @@ from uuid import uuid4
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from common.events import EnrollmentConfirmedEvent
 from enrollment_service import repository, waitlist
 from enrollment_service.clients import (
     CatalogClient,
@@ -26,12 +25,13 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ReconcileReport:
     stale_rejected: int = 0
+    expired: int = 0
     released: int = 0
-    promoted: int = 0
+    offered: int = 0
 
     @property
     def changed(self) -> bool:
-        return bool(self.stale_rejected or self.released or self.promoted)
+        return bool(self.stale_rejected or self.expired or self.released or self.offered)
 
 
 class Reconciler:
@@ -64,8 +64,9 @@ class Reconciler:
     async def run_once(self) -> ReconcileReport:
         return ReconcileReport(
             stale_rejected=await self.reject_stale_staged(),
+            expired=await self.expire_offers(),
             released=await self.release_pending(),
-            promoted=await self.pump_waitlists(),
+            offered=await self.pump_waitlists(),
         )
 
     async def reject_stale_staged(self) -> int:
@@ -82,6 +83,21 @@ class Reconciler:
                 rejected += status is not None
         return rejected
 
+    async def expire_offers(self) -> int:
+        async with self._sessions() as session, session.begin():
+            expired_ids = await repository.expired_offer_ids(session, utcnow())
+
+        expired = 0
+        for enrollment_id in expired_ids:
+            async with self._sessions() as session, session.begin():
+                outcome = await waitlist.expire_offer(session, enrollment_id)
+            if outcome is None:
+                continue
+            expired += 1
+            if outcome.offered:
+                self._publisher.publish(outcome.offered.event())
+        return expired
+
     async def release_pending(self) -> int:
         async with self._sessions() as session, session.begin():
             pending = await repository.pending_releases(session)
@@ -95,44 +111,37 @@ class Reconciler:
         async with self._sessions() as session, session.begin():
             section_ids = await waitlist.sections_with_waitlist(session)
 
-        promoted = 0
+        offered = 0
         for section_id in section_ids:
-            promoted += await self._pump_section(section_id)
-        return promoted
+            offered += await self._pump_section(section_id)
+        return offered
 
     async def _pump_section(self, section_id: int) -> int:
-        promoted = 0
+        offered = 0
         while True:
             async with self._sessions() as session, session.begin():
                 if not await waitlist.has_waitlist(session, section_id):
-                    return promoted
+                    return offered
 
             seat_key = str(uuid4())
             try:
                 if not await self._catalog.reserve_seat(section_id, seat_key):
-                    return promoted
+                    return offered
             except (UpstreamUnavailable, UpstreamNotFound) as exc:
                 logger.warning("Waitlist pump skipped section %s: %s", section_id, exc)
-                return promoted
+                return offered
 
             async with self._sessions() as session, session.begin():
-                promotion = await waitlist.promote_head(session, section_id, seat_key)
+                offer = await waitlist.offer_head(session, section_id, seat_key)
 
-            if promotion is None:
+            if offer is None:
                 try:
                     await self._catalog.release_seat(section_id, seat_key)
                 except UpstreamUnavailable as exc:
                     logger.error(
                         "Leaked seat %s in section %s: %s", seat_key, section_id, exc
                     )
-                return promoted
+                return offered
 
-            self._publisher.publish(
-                EnrollmentConfirmedEvent(
-                    student_id=promotion.student_id,
-                    section_id=section_id,
-                    course_code=promotion.course_code,
-                    credits=promotion.credits,
-                )
-            )
-            promoted += 1
+            self._publisher.publish(offer.event())
+            offered += 1

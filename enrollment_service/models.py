@@ -40,6 +40,7 @@ class Enrollment(Base):
             "waitlisted_at",
             "id",
         ),
+        Index("ix_enrollments_offer_expiry", "status", "offer_expires_at"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -57,6 +58,7 @@ class Enrollment(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False)
     seat_key: Mapped[str | None] = mapped_column(String(36), nullable=True, unique=True)
     waitlisted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    offer_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=utcnow)

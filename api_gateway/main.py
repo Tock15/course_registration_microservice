@@ -178,6 +178,36 @@ async def drop(
     return await upstream.forward(request, "/drops", principal.sub)
 
 
+@app.get("/api/v1/enrollments/me", tags=["Enrollments"], responses=_PROXIED_RESPONSES)
+async def my_enrollment_records(
+    request: Request,
+    principal: TokenPayload = Depends(get_current_principal),
+    upstream: UpstreamService = Depends(get_enrollment_upstream),
+):
+    """List the authenticated student's enrollment records as a plain array."""
+    return await upstream.forward(request, "/enrollments/me", principal.sub)
+
+
+@app.post("/api/v1/waitlist/claim", tags=["Enrollments"], responses=_PROXIED_RESPONSES)
+async def claim_offer(
+    request: Request,
+    principal: TokenPayload = Depends(get_current_principal),
+    upstream: UpstreamService = Depends(get_enrollment_upstream),
+):
+    """Claim the authenticated student's time-limited waitlist seat offer."""
+    return await upstream.forward(request, "/waitlist/claim", principal.sub)
+
+
+@app.get("/api/v1/waitlist/me", tags=["Enrollments"], responses=_PROXIED_RESPONSES)
+async def my_waitlist(
+    request: Request,
+    principal: TokenPayload = Depends(get_current_principal),
+    upstream: UpstreamService = Depends(get_enrollment_upstream),
+):
+    """List the authenticated student's waitlist entries and seat offers."""
+    return await upstream.forward(request, "/waitlist/me", principal.sub)
+
+
 @app.get("/api/v1/courses", tags=["Catalog"], responses=_PROXIED_RESPONSES)
 async def list_courses(
     request: Request,

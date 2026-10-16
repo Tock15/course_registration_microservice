@@ -27,7 +27,14 @@ from enrollment_service.database import async_session_maker, get_session_maker, 
 from enrollment_service.events import EventPublisher, HttpEventPublisher
 from enrollment_service.orchestrator import EnrollmentOrchestrator
 from enrollment_service.reconciler import Reconciler
-from enrollment_service.schemas import EnrollmentResult, MyEnrollmentsResponse
+from enrollment_service.schemas import (
+    ClaimRequest,
+    ClaimResult,
+    EnrollmentRecord,
+    EnrollmentResult,
+    MyEnrollmentsResponse,
+    WaitlistEntry,
+)
 from enrollment_service.seat_allocator import DuplicateEnrollmentError
 from enrollment_service.seed import reset_enrollment_data
 from enrollment_service.waitlist import NotEnrolledError
@@ -219,7 +226,7 @@ async def drop(
     student_id: str = Depends(get_current_student),
     orchestrator: EnrollmentOrchestrator = Depends(get_orchestrator),
 ):
-    """Drop a section or leave its waitlist; a freed seat goes to the queue head."""
+    """Drop a section, decline a seat offer or leave the waitlist; freed seats are offered on."""
     return await orchestrator.drop(student_id, payload.section_id)
 
 
@@ -230,3 +237,31 @@ async def my_enrollments(
 ):
     """List the caller's enrollments (newest first) with waitlist positions."""
     return await orchestrator.list_for_student(student_id)
+
+
+@app.get("/enrollments/me", response_model=list[EnrollmentRecord], tags=["Enrollments"])
+async def my_enrollment_list(
+    student_id: str = Depends(get_current_student),
+    orchestrator: EnrollmentOrchestrator = Depends(get_orchestrator),
+):
+    """The caller's enrollments as a plain array (newest first)."""
+    return (await orchestrator.list_for_student(student_id)).enrollments
+
+
+@app.get("/waitlist/me", response_model=list[WaitlistEntry], tags=["Waitlist"])
+async def my_waitlist(
+    student_id: str = Depends(get_current_student),
+    orchestrator: EnrollmentOrchestrator = Depends(get_orchestrator),
+):
+    """The caller's waitlist places and pending seat offers with claim deadlines."""
+    return await orchestrator.my_waitlist(student_id)
+
+
+@app.post("/waitlist/claim", response_model=ClaimResult, tags=["Waitlist"])
+async def claim_offer(
+    payload: ClaimRequest,
+    student_id: str = Depends(get_current_student),
+    orchestrator: EnrollmentOrchestrator = Depends(get_orchestrator),
+):
+    """Claim a pending seat offer before it expires; returns 200 either way."""
+    return await orchestrator.claim(student_id, payload.offer_id)

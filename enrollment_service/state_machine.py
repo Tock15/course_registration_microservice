@@ -22,6 +22,8 @@ class LifecycleEvent(str, Enum):
     RESERVATION_FAILED = "RESERVATION_FAILED"
     PROMOTE = "PROMOTE"
     DROP = "DROP"
+    CLAIM = "CLAIM"
+    EXPIRE = "EXPIRE"
 
 
 class EnrollmentState(ABC):
@@ -44,6 +46,12 @@ class EnrollmentState(ABC):
 
     def on_drop(self) -> "EnrollmentState":
         raise InvalidTransition(self.status, LifecycleEvent.DROP)
+
+    def on_claim(self) -> "EnrollmentState":
+        raise InvalidTransition(self.status, LifecycleEvent.CLAIM)
+
+    def on_expire(self) -> "EnrollmentState":
+        raise InvalidTransition(self.status, LifecycleEvent.EXPIRE)
 
 
 class StagedState(EnrollmentState):
@@ -73,7 +81,21 @@ class WaitlistedState(EnrollmentState):
     is_active = True
 
     def on_promote(self) -> EnrollmentState:
+        return OfferedState()
+
+    def on_drop(self) -> EnrollmentState:
+        return DroppedState()
+
+
+class OfferedState(EnrollmentState):
+    status = EnrollmentStatus.OFFERED
+    is_active = True
+
+    def on_claim(self) -> EnrollmentState:
         return EnrolledState()
+
+    def on_expire(self) -> EnrollmentState:
+        return DroppedState()
 
     def on_drop(self) -> EnrollmentState:
         return DroppedState()
@@ -93,6 +115,7 @@ _STATES: dict[EnrollmentStatus, EnrollmentState] = {
         StagedState(),
         EnrolledState(),
         WaitlistedState(),
+        OfferedState(),
         DroppedState(),
         RejectedState(),
     )
@@ -104,6 +127,8 @@ _HANDLERS = {
     LifecycleEvent.RESERVATION_FAILED: "on_reservation_failed",
     LifecycleEvent.PROMOTE: "on_promote",
     LifecycleEvent.DROP: "on_drop",
+    LifecycleEvent.CLAIM: "on_claim",
+    LifecycleEvent.EXPIRE: "on_expire",
 }
 
 
