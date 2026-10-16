@@ -132,6 +132,43 @@ async def apply_event(
     return target
 
 
+async def claim_offer(
+    session: AsyncSession, enrollment_id: int, student_id: str
+) -> Enrollment | None:
+    """Claim the caller's unexpired offer via conditional UPDATE; None if not claimable."""
+    now = utcnow()
+    source = EnrollmentStatus.OFFERED.value
+    target = next_status(source, LifecycleEvent.CLAIM)
+    reason = "Claimed waitlist seat offer."
+    result = await session.execute(
+        update(Enrollment)
+        .where(
+            Enrollment.id == enrollment_id,
+            Enrollment.student_id == student_id,
+            Enrollment.status.in_(sources_for(LifecycleEvent.CLAIM)),
+            Enrollment.offer_expires_at > now,
+        )
+        .values(status=target.value, updated_at=now, reason=reason)
+    )
+    if result.rowcount != 1:
+        return None
+
+    row = (
+        await session.execute(select(Enrollment).where(Enrollment.id == enrollment_id))
+    ).scalar_one()
+    record_audit(
+        session,
+        enrollment_id=enrollment_id,
+        student_id=student_id,
+        section_id=row.section_id,
+        action=LifecycleEvent.CLAIM.value,
+        from_status=source,
+        to_status=target.value,
+        detail=reason,
+    )
+    return row
+
+
 async def active_enrollments(session: AsyncSession, student_id: str) -> list[Enrollment]:
     result = await session.execute(
         select(Enrollment).where(
@@ -170,6 +207,18 @@ async def stale_staged_ids(session: AsyncSession, older_than: datetime) -> list[
             Enrollment.status == EnrollmentStatus.STAGED.value,
             Enrollment.created_at < older_than,
         )
+    )
+    return list(result.scalars().all())
+
+
+async def expired_offer_ids(session: AsyncSession, now: datetime) -> list[int]:
+    result = await session.execute(
+        select(Enrollment.id)
+        .where(
+            Enrollment.status == EnrollmentStatus.OFFERED.value,
+            Enrollment.offer_expires_at <= now,
+        )
+        .order_by(Enrollment.offer_expires_at, Enrollment.id)
     )
     return list(result.scalars().all())
 

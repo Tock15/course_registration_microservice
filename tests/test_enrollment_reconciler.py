@@ -81,14 +81,15 @@ async def test_capacity_increase_is_pumped_into_waitlist_in_fifo_order(
 
     report = await make_reconciler(enrollment_env).run_once()
 
-    assert report.promoted == 2
+    assert report.offered == 2
     assert enrollment_env.upstreams.seats_held(105) == 3
-    assert await enrollment_env.status_of("STU_002", 105) == "ENROLLED"
-    assert await enrollment_env.status_of("STU_003", 105) == "ENROLLED"
+    assert await enrollment_env.status_of("STU_002", 105) == "OFFERED"
+    assert await enrollment_env.status_of("STU_003", 105) == "OFFERED"
     assert await enrollment_env.status_of("STU_004", 105) == "WAITLISTED"
     assert (await enrollment_env.mine("STU_004"))["enrollments"][0]["waitlist_position"] == 1
-    promoted = [e.student_id for e in enrollment_env.publisher.events[-2:]]
-    assert promoted == ["STU_002", "STU_003"]
+    assert enrollment_env.publisher.types()[-2:] == ["WAITLIST_SLOT_OFFERED"] * 2
+    offered = [e.student_id for e in enrollment_env.publisher.events[-2:]]
+    assert offered == ["STU_002", "STU_003"]
 
 
 async def test_pump_does_nothing_when_section_still_full(enrollment_env: EnrollmentTestEnv):
@@ -97,6 +98,59 @@ async def test_pump_does_nothing_when_section_still_full(enrollment_env: Enrollm
 
     report = await make_reconciler(enrollment_env).run_once()
 
-    assert report.promoted == 0
+    assert report.offered == 0
     assert await enrollment_env.status_of("STU_002", 105) == "WAITLISTED"
     assert enrollment_env.upstreams.seats_held(105) == 1
+
+
+async def make_offer(enrollment_env: EnrollmentTestEnv, *waiting: str) -> int:
+    await enrollment_env.enroll("STU_001", 105)
+    for student in waiting:
+        await enrollment_env.enroll(student, 105)
+    await enrollment_env.drop("STU_001", 105)
+    return (await enrollment_env.row_of(waiting[0], 105)).id
+
+
+async def test_expired_offer_cascades_same_seat_to_next_in_line(enrollment_env: EnrollmentTestEnv):
+    offer_id = await make_offer(enrollment_env, "STU_002", "STU_003")
+    seat_key = (await enrollment_env.row_of("STU_002", 105)).seat_key
+    await enrollment_env.backdate_offer(offer_id)
+    calls_before = len(enrollment_env.upstreams.seat_calls)
+
+    report = await make_reconciler(enrollment_env).run_once()
+
+    assert (report.expired, report.released, report.offered) == (1, 0, 0)
+    expired = await enrollment_env.row_of("STU_002", 105)
+    assert expired.status == "DROPPED" and expired.seat_key is None
+    assert expired.reason == "Seat offer expired without a claim; seat passed to the waitlist."
+    nxt = await enrollment_env.row_of("STU_003", 105)
+    assert nxt.status == "OFFERED" and nxt.seat_key == seat_key
+    assert len(enrollment_env.upstreams.seat_calls) == calls_before
+    assert enrollment_env.upstreams.seats_held(105) == 1
+    assert enrollment_env.publisher.types()[-1] == "WAITLIST_SLOT_OFFERED"
+    assert enrollment_env.publisher.events[-1].student_id == "STU_003"
+    assert (await enrollment_env.claim("STU_002", offer_id)).json()["status"] == (
+        "EXPIRED_OR_ALREADY_CLAIMED"
+    )
+
+
+async def test_expired_offer_with_empty_queue_releases_seat(enrollment_env: EnrollmentTestEnv):
+    offer_id = await make_offer(enrollment_env, "STU_002")
+    await enrollment_env.backdate_offer(offer_id)
+
+    report = await make_reconciler(enrollment_env).run_once()
+
+    assert (report.expired, report.released) == (1, 1)
+    expired = await enrollment_env.row_of("STU_002", 105)
+    assert expired.status == "DROPPED" and expired.seat_key is None
+    assert enrollment_env.upstreams.seats_held(105) == 0
+
+
+async def test_live_offer_is_left_alone(enrollment_env: EnrollmentTestEnv):
+    await make_offer(enrollment_env, "STU_002", "STU_003")
+
+    report = await make_reconciler(enrollment_env).run_once()
+
+    assert report.expired == 0 and not report.changed
+    assert await enrollment_env.status_of("STU_002", 105) == "OFFERED"
+    assert await enrollment_env.status_of("STU_003", 105) == "WAITLISTED"

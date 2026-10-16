@@ -17,9 +17,11 @@ from enrollment_service.database import run_with_retry
 from enrollment_service.events import EventPublisher, WaitlistJoinedEvent
 from enrollment_service.models import Enrollment
 from enrollment_service.schemas import (
+    ClaimResult,
     EnrollmentRecord,
     EnrollmentResult,
     MyEnrollmentsResponse,
+    WaitlistEntry,
 )
 from enrollment_service.seat_allocator import SeatAllocator
 from enrollment_service.validation import (
@@ -200,8 +202,8 @@ class EnrollmentOrchestrator:
             )
             message = (
                 "Section full. Placed on waitlist at position "
-                f"{allocation.waitlist_position}; you will be enrolled "
-                "automatically when a seat frees up."
+                f"{allocation.waitlist_position}; you will get a time-limited "
+                "seat offer to claim when a seat frees up."
             )
 
         return EnrollmentResult(
@@ -233,25 +235,19 @@ class EnrollmentOrchestrator:
                 course_code=outcome.course_code,
             )
         )
-        if outcome.promoted:
-            self._publisher.publish(
-                EnrollmentConfirmedEvent(
-                    student_id=outcome.promoted.student_id,
-                    section_id=section_id,
-                    course_code=outcome.promoted.course_code,
-                    credits=outcome.promoted.credits,
-                )
-            )
+        if outcome.offered:
+            self._publisher.publish(outcome.offered.event())
 
         if outcome.previous_status is EnrollmentStatus.WAITLISTED:
             message = f"Removed from the waitlist for section {section_id}."
-        elif outcome.promoted:
-            message = (
-                f"Dropped section {section_id}. "
-                "Your seat was passed to the next waitlisted student."
-            )
         else:
-            message = f"Dropped section {section_id}."
+            message = (
+                f"Declined the seat offer for section {section_id}."
+                if outcome.previous_status is EnrollmentStatus.OFFERED
+                else f"Dropped section {section_id}."
+            )
+            if outcome.offered:
+                message += " The seat was offered to the next waitlisted student."
 
         return EnrollmentResult(
             enrollment_id=outcome.enrollment_id,
@@ -261,6 +257,51 @@ class EnrollmentOrchestrator:
             status=EnrollmentStatus.DROPPED,
             message=message,
         )
+
+    async def claim(self, student_id: str, offer_id: int) -> ClaimResult:
+        async def _do_claim():
+            async with self._sessions() as session, session.begin():
+                return await repository.claim_offer(session, offer_id, student_id)
+
+        row = await run_with_retry(_do_claim)
+        if row is None:
+            return ClaimResult(
+                status="EXPIRED_OR_ALREADY_CLAIMED",
+                message="This offer has expired or was already claimed.",
+            )
+
+        self._publisher.publish(
+            EnrollmentConfirmedEvent(
+                student_id=student_id,
+                section_id=row.section_id,
+                course_code=row.course_code,
+                credits=row.credits,
+            )
+        )
+        return ClaimResult(
+            status="CLAIMED",
+            message=f"Seat claimed. You are now enrolled in {row.course_code}.",
+            enrollment_id=row.id,
+            section_id=row.section_id,
+            course_code=row.course_code,
+        )
+
+    async def my_waitlist(self, student_id: str) -> list[WaitlistEntry]:
+        async def _fetch():
+            async with self._sessions() as session, session.begin():
+                return [
+                    WaitlistEntry(
+                        offer_id=row.id,
+                        section_id=row.section_id,
+                        course_code=row.course_code,
+                        position=pos,
+                        status=EnrollmentStatus(row.status),
+                        expires_at=row.offer_expires_at,
+                    )
+                    for row, pos in await waitlist.student_queue(session, student_id)
+                ]
+
+        return await run_with_retry(_fetch)
 
     async def list_for_student(self, student_id: str) -> MyEnrollmentsResponse:
         async def _fetch():
@@ -279,6 +320,11 @@ class EnrollmentOrchestrator:
                         waitlist_position=(
                             await waitlist.position(session, row.id)
                             if row.status == EnrollmentStatus.WAITLISTED.value
+                            else None
+                        ),
+                        offer_expires_at=(
+                            row.offer_expires_at
+                            if row.status == EnrollmentStatus.OFFERED.value
                             else None
                         ),
                         reason=row.reason,
