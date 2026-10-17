@@ -11,7 +11,12 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from catalog_service.database import get_db, init_db, make_engine
-from catalog_service.main import app
+from catalog_service.main import (
+    _saturation_cache,
+    app,
+    clear_saturation_cache,
+    evict_section_saturation,
+)
 from enrollment_service.clients import CatalogClient
 
 
@@ -496,3 +501,180 @@ async def test_concurrent_reserve_seats_zero_overbooking(api_client: AsyncClient
     final_sec = (await client.get(f"/sections/{sec_id}")).json()
     assert final_sec["enrolled_count"] == 5
 
+
+@pytest.mark.asyncio
+async def test_saturation_cache_fast_fail_and_eviction(api_client: AsyncClient):
+    """Verify that in-memory saturation cache fast-fails without database updates (ADR-003)."""
+    clear_saturation_cache()
+    client = api_client
+
+    await client.post("/courses", json={"code": "CS105", "title": "Cache Test", "credits": 3})
+    sec = (
+        await client.post(
+            "/sections",
+            json={"course_code": "CS105", "section_number": 1, "capacity": 1},
+        )
+    ).json()
+    sec_id = sec["id"]
+
+    # 1. Fill capacity
+    r1 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_1"})
+    assert r1.status_code == 200
+
+    # 2. Section is now full; first failure arms saturation cache
+    r2 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_2"})
+    assert r2.status_code == 409
+    assert sec_id in _saturation_cache
+
+    # 3. Subsequent request hits saturation cache fast-path
+    r3 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_3"})
+    assert r3.status_code == 409
+    assert r3.json()["reason"] == "FULL"
+
+    # 4. Release seat evicts from saturation cache
+    rel = await client.post(f"/sections/{sec_id}/seats/release", json={"seat_key": "SAT_1"})
+    assert rel.status_code == 200
+    assert sec_id not in _saturation_cache
+
+    # 5. Now reservation succeeds again
+    r4 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_4"})
+    assert r4.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_saturation_cache_interleaved_release_does_not_arm_cache(tmp_path):
+    """Verify that an interleaved seat release during reservation failure prevents arming the cache."""
+    clear_saturation_cache()
+    test_db_path = tmp_path / "test_interleave.db"
+    test_engine = make_engine(f"sqlite+aiosqlite:///{test_db_path.as_posix()}")
+    await init_db(test_engine)
+
+    test_session_maker = async_sessionmaker(
+        bind=test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    target_sec_id = None
+
+    async def override_get_db():
+        async with test_session_maker() as session:
+            orig_get = session.get
+
+            async def hooked_get(entity, ident, **kwargs):
+                if target_sec_id is not None and ident == target_sec_id:
+                    # Simulate a concurrent release committing while Request A is yielded on session.get
+                    evict_section_saturation(target_sec_id)
+                return await orig_get(entity, ident, **kwargs)
+
+            session.get = hooked_get
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                await session.close()
+
+    try:
+        app.dependency_overrides[get_db] = override_get_db
+
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://test"
+        ) as client:
+            await client.post("/courses", json={"code": "CS106", "title": "Race Test", "credits": 3})
+            sec = (
+                await client.post(
+                    "/sections",
+                    json={"course_code": "CS106", "section_number": 1, "capacity": 1},
+                )
+            ).json()
+            sec_id = sec["id"]
+
+            # 1. Fill capacity (1/1)
+            r1 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "OCC_1"})
+            assert r1.status_code == 200
+
+            # Enable interception hook for section sec_id
+            target_sec_id = sec_id
+
+            # 2. Second request fails (0 rows updated), but while awaiting session.get,
+            # hooked_get triggers an eviction/version bump
+            r2 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "FAIL_1"})
+            assert r2.status_code == 409
+            assert r2.json()["reason"] == "FULL"
+
+            # 3. Assert that because of the interleaved release, the section was NOT cached in _saturation_cache!
+            assert sec_id not in _saturation_cache
+    finally:
+        app.dependency_overrides.clear()
+        await test_engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_released_or_cancelled_seat_key_returns_proper_reason_when_section_saturated(
+    api_client: AsyncClient,
+):
+    """
+    Verify that replaying a RELEASED or CANCELLED seat key on a saturated section
+    returns HTTP 409 with reason 'RELEASED' or 'CANCELLED', not 'FULL'.
+    """
+    client = api_client
+    clear_saturation_cache()
+
+    # 1. Setup course and 1-seat section
+    await client.post("/courses", json={"code": "CS107", "title": "Status Test", "credits": 3})
+    sec_res = await client.post(
+        "/sections",
+        json={"course_code": "CS107", "section_number": 1, "capacity": 1},
+    )
+    sec_id = sec_res.json()["id"]
+
+    # 2. Reserve seat with KEY_REL, then release it
+    r1 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_REL"})
+    assert r1.status_code == 200
+    rel = await client.post(f"/sections/{sec_id}/seats/release", json={"seat_key": "KEY_REL"})
+    assert rel.status_code == 200
+
+    # 3. Fill the section with KEY_ACTIVE (1/1 full)
+    r2 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_ACTIVE"})
+    assert r2.status_code == 200
+
+    # 4. Saturated attempt with fresh key arms the saturation cache
+    r3 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_BLOCKED"})
+    assert r3.status_code == 409
+    assert r3.json()["reason"] == "FULL"
+    assert sec_id in _saturation_cache
+
+    # 5. Idempotent replay of KEY_ACTIVE on saturated section returns 200 OK
+    r_active_replay = await client.post(
+        f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_ACTIVE"}
+    )
+    assert r_active_replay.status_code == 200
+    assert r_active_replay.json()["reserved"] is True
+
+    # 6. Replaying KEY_REL on the saturated section MUST return reason 'RELEASED', not 'FULL'
+    r_rel_replay = await client.post(
+        f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_REL"}
+    )
+    assert r_rel_replay.status_code == 409
+    assert r_rel_replay.json()["reserved"] is False
+    assert r_rel_replay.json()["reason"] == "RELEASED"
+    assert "released" in r_rel_replay.json()["detail"].lower()
+
+    # 7. Releasing an unknown seat key creates a CANCELLED reservation record
+    rel_unknown = await client.post(
+        f"/sections/{sec_id}/seats/release", json={"seat_key": "KEY_CANCEL"}
+    )
+    assert rel_unknown.status_code == 200
+    assert rel_unknown.json()["released"] is True
+    assert rel_unknown.json()["reason"] == "CANCELLED"
+
+    # 8. Replaying KEY_CANCEL on the saturated section MUST return reason 'CANCELLED', not 'FULL'
+    r_cancel_replay = await client.post(
+        f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_CANCEL"}
+    )
+    assert r_cancel_replay.status_code == 409
+    assert r_cancel_replay.json()["reserved"] is False
+    assert r_cancel_replay.json()["reason"] == "CANCELLED"
+    assert "cancelled" in r_cancel_replay.json()["detail"].lower()

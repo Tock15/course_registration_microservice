@@ -1,6 +1,6 @@
 """
 catalog_service/database.py
-Async SQLite database connection & session lifecycle using SQLAlchemy 2.0.
+Dual-mode database engine & async session lifecycle (PostgreSQL / SQLite) using SQLAlchemy 2.0 (ADR-003).
 """
 import os
 from collections.abc import AsyncGenerator
@@ -25,15 +25,19 @@ DATABASE_URL = os.getenv(
 SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "15000"))
 
 
-def make_engine(url: str) -> AsyncEngine:
-    """Create an async SQLite engine configured with WAL and busy timeout (ADR-001)."""
-    eng = create_async_engine(
-        url,
-        echo=False,
-        connect_args={"check_same_thread": False},
-    )
-
+def make_engine(
+    url: str,
+    pool_size: int = 20,
+    max_overflow: int = 20,
+) -> AsyncEngine:
+    """Create an async engine supporting SQLite (with WAL) or PostgreSQL (with pooling)."""
     if "sqlite" in url:
+        eng = create_async_engine(
+            url,
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+
         @event.listens_for(eng.sync_engine, "connect")
         def _on_connect(dbapi_connection, _connection_record) -> None:
             cursor = dbapi_connection.cursor()
@@ -44,7 +48,15 @@ def make_engine(url: str) -> AsyncEngine:
             cursor.execute(f"PRAGMA busy_timeout={SQLITE_BUSY_TIMEOUT_MS}")
             cursor.close()
 
-    return eng
+        return eng
+
+    return create_async_engine(
+        url,
+        echo=False,
+        pool_size=pool_size,
+        max_overflow=max_overflow,
+        pool_pre_ping=False,
+    )
 
 
 # Create asynchronous engine

@@ -138,3 +138,56 @@ async def test_seat_reservation_model_and_cascade_delete(async_test_session: Asy
 
     remaining_res = (await session.execute(stmt)).scalar_one_or_none()
     assert remaining_res is None
+
+
+def test_make_engine_dual_mode_support():
+    """Verify that make_engine creates appropriate async engines for both SQLite and PostgreSQL."""
+    from catalog_service.database import make_engine
+
+    # 1. SQLite engine
+    sqlite_eng = make_engine("sqlite+aiosqlite:///:memory:")
+    assert "sqlite" in str(sqlite_eng.url)
+
+    # 2. PostgreSQL engine
+    pg_eng = make_engine(
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/catalog_db",
+        pool_size=15,
+        max_overflow=25,
+    )
+    assert "postgresql" in str(pg_eng.url)
+    assert pg_eng.pool.size() == 15
+
+
+@pytest.mark.asyncio
+async def test_seed_catalog_data_and_sequence_sync(async_test_session: AsyncSession):
+    """Verify seed_catalog_data populates records and synchronizes sequence on PostgreSQL."""
+    from unittest.mock import AsyncMock, MagicMock
+
+    from catalog_service.seed import seed_catalog_data
+
+    # 1. Test execution on SQLite
+    stats = await seed_catalog_data(async_test_session)
+    assert stats["courses"] > 0
+    assert stats["prerequisites"] > 0
+    assert stats["sections"] > 0
+
+    # Verify sections 101-107 exist
+    sec_stmt = select(Section).where(Section.id == 101)
+    sec_101 = (await async_test_session.execute(sec_stmt)).scalar_one_or_none()
+    assert sec_101 is not None
+    assert sec_101.capacity == 10
+
+    # 2. Test PostgreSQL sequence advancement branch
+    mock_session = AsyncMock(spec=AsyncSession)
+    mock_bind = MagicMock()
+    mock_bind.dialect.name = "postgresql"
+    mock_session.get_bind.return_value = mock_bind
+
+    stats_pg = await seed_catalog_data(mock_session)
+    assert stats_pg["sections"] > 0
+
+    # Ensure execute was called with setval
+    executed_statements = [str(call.args[0]) for call in mock_session.execute.call_args_list if call.args]
+    assert any("pg_get_serial_sequence" in stmt for stmt in executed_statements)
+
+
