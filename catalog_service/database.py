@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_DB_FILE = Path(__file__).resolve().parent.parent / "catalog.db"
 DATABASE_URL = os.getenv(
     "CATALOG_DATABASE_URL",
-    os.getenv("DATABASE_URL", f"sqlite+aiosqlite:///{DEFAULT_DB_FILE.as_posix()}"),
+    f"sqlite+aiosqlite:///{DEFAULT_DB_FILE.as_posix()}",
 )
 SQLITE_BUSY_TIMEOUT_MS = int(os.getenv("SQLITE_BUSY_TIMEOUT_MS", "15000"))
 

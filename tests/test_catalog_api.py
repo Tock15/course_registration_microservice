@@ -538,3 +538,79 @@ async def test_saturation_cache_fast_fail_and_eviction(api_client: AsyncClient):
     assert r4.status_code == 200
 
 
+@pytest.mark.asyncio
+async def test_saturation_cache_interleaved_release_does_not_arm_cache(tmp_path):
+    """Verify that an interleaved seat release during reservation failure prevents arming the cache."""
+    from catalog_service.main import (
+        _saturation_cache,
+        clear_saturation_cache,
+        evict_section_saturation,
+    )
+
+    clear_saturation_cache()
+    test_db_path = tmp_path / "test_interleave.db"
+    test_engine = make_engine(f"sqlite+aiosqlite:///{test_db_path.as_posix()}")
+    await init_db(test_engine)
+
+    test_session_maker = async_sessionmaker(
+        bind=test_engine,
+        class_=AsyncSession,
+        expire_on_commit=False,
+    )
+
+    target_sec_id = None
+
+    async def override_get_db():
+        async with test_session_maker() as session:
+            orig_get = session.get
+
+            async def hooked_get(entity, ident, **kwargs):
+                if target_sec_id is not None and ident == target_sec_id:
+                    # Simulate a concurrent release committing while Request A is yielded on session.get
+                    evict_section_saturation(target_sec_id)
+                return await orig_get(entity, ident, **kwargs)
+
+            session.get = hooked_get
+            try:
+                yield session
+            except Exception:
+                await session.rollback()
+                raise
+            finally:
+                await session.close()
+
+    app.dependency_overrides[get_db] = override_get_db
+
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        await client.post("/courses", json={"code": "CS106", "title": "Race Test", "credits": 3})
+        sec = (
+            await client.post(
+                "/sections",
+                json={"course_code": "CS106", "section_number": 1, "capacity": 1},
+            )
+        ).json()
+        sec_id = sec["id"]
+
+        # 1. Fill capacity (1/1)
+        r1 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "OCC_1"})
+        assert r1.status_code == 200
+
+        # Enable interception hook for section sec_id
+        target_sec_id = sec_id
+
+        # 2. Second request fails (0 rows updated), but while awaiting session.get,
+        # hooked_get triggers an eviction/version bump
+        r2 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "FAIL_1"})
+        assert r2.status_code == 409
+        assert r2.json()["reason"] == "FULL"
+
+        # 3. Assert that because of the interleaved release, the section was NOT cached in _saturation_cache!
+        assert sec_id not in _saturation_cache
+
+    app.dependency_overrides.clear()
+    await test_engine.dispose()
+
+
+

@@ -72,7 +72,7 @@ services:
     expose:
       - "8002"
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@catalog-postgres:5432/catalog_db
+      CATALOG_DATABASE_URL: postgresql+asyncpg://postgres:postgres@catalog-postgres:5432/catalog_db
       STUDENT_SERVICE_URL: http://student-service:8001
       PORT: "8002"
       ALLOW_RESET: "true"
