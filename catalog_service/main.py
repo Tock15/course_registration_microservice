@@ -10,6 +10,7 @@ Responsibilities:
   - Idempotent seat reservation & release protocol (ADR-001)
 """
 import os
+import time
 from contextlib import asynccontextmanager
 
 import httpx
@@ -41,6 +42,26 @@ from common.schemas import (
 )
 
 STUDENT_SERVICE_URL = os.getenv("STUDENT_SERVICE_URL", "http://localhost:8001")
+
+# In-memory Hot Section Saturation Cache (ADR-003)
+# Maps section_id -> (expiration_monotonic, capacity)
+_saturation_cache: dict[int, tuple[float, int]] = {}
+SATURATION_TTL_SECONDS = float(os.getenv("CATALOG_SATURATION_TTL_SECONDS", "2.0"))
+
+
+def mark_section_saturated(section_id: int, capacity: int, ttl: float = SATURATION_TTL_SECONDS) -> None:
+    """Mark a section as saturated in memory for `ttl` seconds."""
+    _saturation_cache[section_id] = (time.monotonic() + ttl, capacity)
+
+
+def evict_section_saturation(section_id: int) -> None:
+    """Evict a section from the saturation cache (e.g., on release or capacity expansion)."""
+    _saturation_cache.pop(section_id, None)
+
+
+def clear_saturation_cache() -> None:
+    """Clear all saturation cache entries (e.g., on catalog reset or re-seed)."""
+    _saturation_cache.clear()
 
 
 @asynccontextmanager
@@ -111,6 +132,7 @@ async def reset_catalog(
         )
     stats = await seed_catalog_data(session)
     request.app.state.dag = None
+    clear_saturation_cache()
     return {"ok": True, "details": stats}
 
 
@@ -413,6 +435,7 @@ async def update_section_capacity(
     section.capacity = payload.capacity
     await session.commit()
     await session.refresh(section)
+    evict_section_saturation(id)
 
     return SectionDTO.model_validate(section)
 
@@ -448,7 +471,40 @@ async def reserve_seat(
     """
     seat_key = payload.seat_key.strip()
 
-    # 1. Check for existing reservation with this seat_key
+    # 1. Check in-memory saturation cache (ADR-003: Fast-fail saturated sections)
+    now = time.monotonic()
+    cached_sat = _saturation_cache.get(id)
+    if cached_sat is not None:
+        exp_time, capacity = cached_sat
+        if now < exp_time:
+            # Check for existing reservation with this seat_key for idempotency
+            existing_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
+            existing_res = (await session.execute(existing_stmt)).scalar_one_or_none()
+            if existing_res is not None:
+                if existing_res.section_id != id:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"Seat key '{seat_key}' was used for section {existing_res.section_id}.",
+                    )
+                if existing_res.status == "ACTIVE":
+                    return SeatReserveResponse(
+                        reserved=True,
+                        seat_key=seat_key,
+                        detail="Seat already reserved.",
+                    )
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content={
+                    "reserved": False,
+                    "seat_key": seat_key,
+                    "reason": "FULL",
+                    "detail": f"Section {id} is at maximum capacity ({capacity}).",
+                },
+            )
+        else:
+            evict_section_saturation(id)
+
+    # 2. Check for existing reservation with this seat_key
     existing_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
     existing_res = (await session.execute(existing_stmt)).scalar_one_or_none()
 
@@ -474,7 +530,7 @@ async def reserve_seat(
             },
         )
 
-    # 2. Atomic conditional update to allocate seat (Zero Overbooking Invariant)
+    # 3. Atomic conditional update to allocate seat (Zero Overbooking Invariant)
     alloc_stmt = (
         update(Section)
         .where(Section.id == id, Section.enrolled_count < Section.capacity)
@@ -489,6 +545,8 @@ async def reserve_seat(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Section {id} not found.",
             )
+        # Arm saturation cache in memory for subsequent burst requests (ADR-003)
+        mark_section_saturated(id, section.capacity)
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content={
@@ -590,6 +648,7 @@ async def release_seat(
         await session.execute(dec_stmt)
         res_record.status = "RELEASED"
         await session.commit()
+        evict_section_saturation(id)
         return SeatReleaseResponse(released=True, seat_key=seat_key)
 
     # Already RELEASED or CANCELLED

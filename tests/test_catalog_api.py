@@ -496,3 +496,45 @@ async def test_concurrent_reserve_seats_zero_overbooking(api_client: AsyncClient
     final_sec = (await client.get(f"/sections/{sec_id}")).json()
     assert final_sec["enrolled_count"] == 5
 
+
+@pytest.mark.asyncio
+async def test_saturation_cache_fast_fail_and_eviction(api_client: AsyncClient):
+    """Verify that in-memory saturation cache fast-fails without database updates (ADR-003)."""
+    from catalog_service.main import _saturation_cache, clear_saturation_cache
+
+    clear_saturation_cache()
+    client = api_client
+
+    await client.post("/courses", json={"code": "CS105", "title": "Cache Test", "credits": 3})
+    sec = (
+        await client.post(
+            "/sections",
+            json={"course_code": "CS105", "section_number": 1, "capacity": 1},
+        )
+    ).json()
+    sec_id = sec["id"]
+
+    # 1. Fill capacity
+    r1 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_1"})
+    assert r1.status_code == 200
+
+    # 2. Section is now full; first failure arms saturation cache
+    r2 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_2"})
+    assert r2.status_code == 409
+    assert sec_id in _saturation_cache
+
+    # 3. Subsequent request hits saturation cache fast-path
+    r3 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_3"})
+    assert r3.status_code == 409
+    assert r3.json()["reason"] == "FULL"
+
+    # 4. Release seat evicts from saturation cache
+    rel = await client.post(f"/sections/{sec_id}/seats/release", json={"seat_key": "SAT_1"})
+    assert rel.status_code == 200
+    assert sec_id not in _saturation_cache
+
+    # 5. Now reservation succeeds again
+    r4 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "SAT_4"})
+    assert r4.status_code == 200
+
+
