@@ -478,40 +478,7 @@ async def reserve_seat(
     """
     seat_key = payload.seat_key.strip()
 
-    # 1. Check in-memory saturation cache (ADR-003: Fast-fail saturated sections)
-    now = time.monotonic()
-    cached_sat = _saturation_cache.get(id)
-    if cached_sat is not None:
-        exp_time, capacity = cached_sat
-        if now < exp_time:
-            # Check for existing reservation with this seat_key for idempotency
-            existing_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
-            existing_res = (await session.execute(existing_stmt)).scalar_one_or_none()
-            if existing_res is not None:
-                if existing_res.section_id != id:
-                    raise HTTPException(
-                        status_code=status.HTTP_409_CONFLICT,
-                        detail=f"Seat key '{seat_key}' was used for section {existing_res.section_id}.",
-                    )
-                if existing_res.status == "ACTIVE":
-                    return SeatReserveResponse(
-                        reserved=True,
-                        seat_key=seat_key,
-                        detail="Seat already reserved.",
-                    )
-            return JSONResponse(
-                status_code=status.HTTP_409_CONFLICT,
-                content={
-                    "reserved": False,
-                    "seat_key": seat_key,
-                    "reason": "FULL",
-                    "detail": f"Section {id} is at maximum capacity ({capacity}).",
-                },
-            )
-        else:
-            _saturation_cache.pop(id, None)
-
-    # 2. Check for existing reservation with this seat_key
+    # 1. Check for existing reservation with this seat_key (Idempotency & state guard)
     existing_stmt = select(SeatReservation).where(SeatReservation.seat_key == seat_key)
     existing_res = (await session.execute(existing_stmt)).scalar_one_or_none()
 
@@ -536,6 +503,24 @@ async def reserve_seat(
                 "detail": f"Seat reservation has already been {existing_res.status.lower()}.",
             },
         )
+
+    # 2. Check in-memory saturation cache (ADR-003: Fast-fail saturated sections)
+    now = time.monotonic()
+    cached_sat = _saturation_cache.get(id)
+    if cached_sat is not None:
+        exp_time, capacity = cached_sat
+        if now < exp_time:
+            return JSONResponse(
+                status_code=status.HTTP_409_CONFLICT,
+                content={
+                    "reserved": False,
+                    "seat_key": seat_key,
+                    "reason": "FULL",
+                    "detail": f"Section {id} is at maximum capacity ({capacity}).",
+                },
+            )
+        else:
+            _saturation_cache.pop(id, None)
 
     # Snapshot version and reset generation to detect interleaved releases or resets (ADR-003)
     v_start = _section_versions.get(id, 0)

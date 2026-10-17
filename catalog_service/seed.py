@@ -7,7 +7,7 @@ Usage:
 """
 import asyncio
 
-from sqlalchemy import delete
+from sqlalchemy import delete, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from catalog_service.database import async_session_maker, init_db
@@ -280,6 +280,18 @@ async def seed_catalog_data(session: AsyncSession) -> dict[str, int]:
 
     session.add_all(sections)
     await session.commit()
+
+    # Synchronize PostgreSQL auto-increment sequence with explicit seeded IDs (101-107)
+    # so subsequent autoincrement inserts (e.g. POST /sections) start at 108 without duplicate key errors.
+    bind = session.get_bind()
+    if bind.dialect.name == "postgresql":
+        await session.execute(
+            text(
+                "SELECT setval(pg_get_serial_sequence('sections', 'id'), "
+                "COALESCE(MAX(id), 1), MAX(id) IS NOT NULL) FROM sections"
+            )
+        )
+        await session.commit()
 
     return {
         "courses": len(courses),

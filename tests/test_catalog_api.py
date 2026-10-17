@@ -613,4 +613,59 @@ async def test_saturation_cache_interleaved_release_does_not_arm_cache(tmp_path)
     await test_engine.dispose()
 
 
+@pytest.mark.asyncio
+async def test_released_or_cancelled_seat_key_returns_proper_reason_when_section_saturated(
+    api_client: AsyncClient,
+):
+    """
+    Verify that replaying a RELEASED or CANCELLED seat key on a saturated section
+    returns HTTP 409 with reason 'RELEASED' or 'CANCELLED', not 'FULL'.
+    """
+    from catalog_service.main import _saturation_cache, clear_saturation_cache
+
+    client = api_client
+    clear_saturation_cache()
+
+    # 1. Setup course and 1-seat section
+    await client.post("/courses", json={"code": "CS107", "title": "Status Test", "credits": 3})
+    sec_res = await client.post(
+        "/sections",
+        json={"course_code": "CS107", "section_number": 1, "capacity": 1},
+    )
+    sec_id = sec_res.json()["id"]
+
+    # 2. Reserve seat with KEY_REL, then release it
+    r1 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_REL"})
+    assert r1.status_code == 200
+    rel = await client.post(f"/sections/{sec_id}/seats/release", json={"seat_key": "KEY_REL"})
+    assert rel.status_code == 200
+
+    # 3. Fill the section with KEY_ACTIVE (1/1 full)
+    r2 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_ACTIVE"})
+    assert r2.status_code == 200
+
+    # 4. Saturated attempt with fresh key arms the saturation cache
+    r3 = await client.post(f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_BLOCKED"})
+    assert r3.status_code == 409
+    assert r3.json()["reason"] == "FULL"
+    assert sec_id in _saturation_cache
+
+    # 5. Idempotent replay of KEY_ACTIVE on saturated section returns 200 OK
+    r_active_replay = await client.post(
+        f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_ACTIVE"}
+    )
+    assert r_active_replay.status_code == 200
+    assert r_active_replay.json()["reserved"] is True
+
+    # 6. Replaying KEY_REL on the saturated section MUST return reason 'RELEASED', not 'FULL'
+    r_rel_replay = await client.post(
+        f"/sections/{sec_id}/seats/reserve", json={"seat_key": "KEY_REL"}
+    )
+    assert r_rel_replay.status_code == 409
+    assert r_rel_replay.json()["reserved"] is False
+    assert r_rel_replay.json()["reason"] == "RELEASED"
+    assert "released" in r_rel_replay.json()["detail"].lower()
+
+
+
 
