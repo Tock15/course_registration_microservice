@@ -8,6 +8,7 @@ Responsibilities:
   - Dynamic quota expansion telemetry (FR-14)
   - Curriculum and Section administration (FR-13)
   - Idempotent seat reservation & release protocol (ADR-001)
+  - In-memory hot section saturation caching & dual-mode persistence (ADR-003)
 """
 import os
 import time
@@ -469,11 +470,14 @@ async def reserve_seat(
     payload: SeatReserveRequest,
     session: AsyncSession = Depends(get_db),
 ):
-    """Atomically reserve a seat in a section using an idempotent seat key (ADR-001).
+    """Atomically reserve a seat in a section using an idempotent seat key (ADR-001, ADR-003).
 
     Guarantees:
       - Atomic conditional SQL update ensures zero overbooking (enrolled_count < capacity).
       - Replaying with the same seat_key returns the existing active reservation idempotently.
+      - Preserves and returns exact state for previously RELEASED or CANCELLED reservations.
+      - Short-circuits burst requests on sold-out sections via in-memory saturation cache (ADR-003).
+      - Protects against interleaved release races using monotonic generation tokens.
       - Returns HTTP 409 FULL when section capacity is exhausted.
     """
     seat_key = payload.seat_key.strip()

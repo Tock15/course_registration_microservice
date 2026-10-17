@@ -244,7 +244,7 @@ SECTIONS_DATA = [
 
 
 async def seed_catalog_data(session: AsyncSession) -> dict[str, int]:
-    """Populate courses, prerequisites, and sections idempotently."""
+    """Populate courses, prerequisites, and sections idempotently, resyncing PostgreSQL sequence."""
     # 1. Clean existing records in reverse dependency order
     await session.execute(delete(SeatReservation))
     await session.execute(delete(Section))

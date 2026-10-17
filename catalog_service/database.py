@@ -1,8 +1,7 @@
 """
 catalog_service/database.py
-Async SQLite database connection & session lifecycle using SQLAlchemy 2.0.
+Dual-mode database engine & async session lifecycle (PostgreSQL / SQLite) using SQLAlchemy 2.0 (ADR-003).
 """
-import logging
 import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
@@ -16,8 +15,6 @@ from sqlalchemy.ext.asyncio import (
 )
 
 from catalog_service.models import Base
-
-logger = logging.getLogger(__name__)
 
 # Resolve persistent catalog.db location (default to project workspace root)
 DEFAULT_DB_FILE = Path(__file__).resolve().parent.parent / "catalog.db"
