@@ -21,6 +21,24 @@ services:
       timeout: 3s
       retries: 5
 
+  catalog-postgres:
+    image: postgres:16-alpine
+    container_name: catalog-postgres
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: catalog_db
+    volumes:
+      - catalog_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d catalog_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 5
+
   # ============================================================================
   # Profile Services (Profile: "app") - Full Multi-Service Stack
   # Run entire stack with: docker compose --profile app up --build
@@ -54,12 +72,12 @@ services:
     expose:
       - "8002"
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@enrollment-postgres:5432/catalog_db
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@catalog-postgres:5432/catalog_db
       STUDENT_SERVICE_URL: http://student-service:8001
       PORT: "8002"
       ALLOW_RESET: "true"
     depends_on:
-      enrollment-postgres:
+      catalog-postgres:
         condition: service_healthy
       student-service:
         condition: service_started
@@ -163,3 +181,5 @@ services:
 
 volumes:
   postgres_data:
+  catalog_postgres_data:
+

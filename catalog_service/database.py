@@ -7,9 +7,7 @@ import os
 from collections.abc import AsyncGenerator
 from pathlib import Path
 
-from sqlalchemy import event, text
-from sqlalchemy.engine.url import make_url
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -76,32 +74,8 @@ async_session_maker = async_sessionmaker(
 )
 
 
-async def ensure_database_exists(url: str) -> None:
-    """Ensure PostgreSQL target database exists by creating it via maintenance db if needed."""
-    parsed_url = make_url(url)
-    target_db = parsed_url.database
-    if not target_db or target_db in ("postgres", "template1"):
-        return
-
-    maint_url = parsed_url.set(database="postgres")
-    maint_engine = create_async_engine(maint_url, isolation_level="AUTOCOMMIT")
-    try:
-        async with maint_engine.connect() as conn:
-            check_stmt = text("SELECT 1 FROM pg_database WHERE datname = :name")
-            result = await conn.execute(check_stmt, {"name": target_db})
-            if result.scalar_one_or_none() is None:
-                await conn.execute(text(f'CREATE DATABASE "{target_db}"'))
-    except (SQLAlchemyError, OSError) as exc:
-        logger.warning("Could not auto-create postgres database '%s': %s", target_db, exc)
-    finally:
-        await maint_engine.dispose()
-
-
 async def init_db(bind: AsyncEngine = engine) -> None:
     """Initialize database tables for Course Catalog Service."""
-    if "postgresql" in str(bind.url):
-        await ensure_database_exists(str(bind.url))
-
     async with bind.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
