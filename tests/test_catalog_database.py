@@ -138,3 +138,22 @@ async def test_seat_reservation_model_and_cascade_delete(async_test_session: Asy
 
     remaining_res = (await session.execute(stmt)).scalar_one_or_none()
     assert remaining_res is None
+
+
+def test_make_engine_dual_mode_support():
+    """Verify that make_engine creates appropriate async engines for both SQLite and PostgreSQL."""
+    from catalog_service.database import make_engine
+
+    # 1. SQLite engine
+    sqlite_eng = make_engine("sqlite+aiosqlite:///:memory:")
+    assert "sqlite" in str(sqlite_eng.url)
+
+    # 2. PostgreSQL engine
+    pg_eng = make_engine(
+        "postgresql+asyncpg://postgres:postgres@localhost:5432/catalog_db",
+        pool_size=15,
+        max_overflow=25,
+    )
+    assert "postgresql" in str(pg_eng.url)
+    assert pg_eng.pool.size() == 15
+
